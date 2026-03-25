@@ -1,0 +1,788 @@
+name: Build AudioPlugin
+
+on:
+  push:
+    branches: [main, develop]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          lfs: true
+
+      - name: Configure CMake
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Verify VST3 bundle
+        shell: pwsh
+        run: |
+          $vst3Path = "build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3"
+          if (-not (Test-Path $vst3Path)) {
+            Write-Error "VST3 bundle not found at $vst3Path"
+            Get-ChildItem -Recurse build -Filter "*.vst3" | ForEach-Object { Write-Host $_.FullName }
+            exit 1
+          }
+          Write-Host "[OK] VST3 bundle exists at $vst3Path"
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AudioPlugin-VST3-Windows-x64
+          path: build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3
+          retention-days: 30
+
+  build-macos:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Use latest Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Xcode \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Verify builds
+        run: |
+          echo "=== Verifying VST3 bundle ==="
+          VST3_PATH="build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3"
+          if [ ! -d "$VST3_PATH" ]; then
+            echo "[ERROR] VST3 not found at $VST3_PATH"
+            find build -name "*.vst3" -type d
+            exit 1
+          fi
+          echo "[OK] VST3 bundle exists"
+
+          BINARY="$VST3_PATH/Contents/MacOS/Audio Plugin"
+          if [ -f "$BINARY" ]; then
+            lipo -info "$BINARY"
+          fi
+
+          echo "=== Verifying AU bundle ==="
+          AU_PATH="build/AudioPlugin_artefacts/Release/AU/Audio Plugin.component"
+          if [ ! -d "$AU_PATH" ]; then
+            echo "[ERROR] AU not found at $AU_PATH"
+            exit 1
+          fi
+          echo "[OK] AU bundle exists"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AudioPlugin-macOS
+          path: |
+            build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3
+            build/AudioPlugin_artefacts/Release/AU/Audio Plugin.component
+          retention-days: 30
+
+  build-linux:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            libasound2-dev \
+            libcurl4-openssl-dev \
+            libfreetype6-dev \
+            libgl1-mesa-dev \
+            libjack-jackd2-dev \
+            libwebkit2gtk-4.0-dev \
+            libx11-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxss-dev \
+            pkg-config
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Verify Linux plugin bundles
+        run: |
+          echo "=== Checking VST3 bundle ==="
+          VST3_PATH="build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3"
+          if [ -d "$VST3_PATH" ]; then
+            echo "[OK] VST3 bundle exists"
+            ls -la "$VST3_PATH/Contents/x86_64-linux/" || true
+          else
+            echo "[WARN] VST3 not found"
+          fi
+
+          echo "=== Checking LV2 bundle ==="
+          LV2_PATH="build/AudioPlugin_artefacts/Release/LV2/Audio Plugin.lv2"
+          if [ -d "$LV2_PATH" ]; then
+            echo "[OK] LV2 bundle exists"
+            ls -la "$LV2_PATH/"
+          else
+            echo "[WARN] LV2 not found"
+          fi
+
+          echo "=== Checking CLAP bundle ==="
+          CLAP_PATH="build/AudioPlugin_artefacts/Release/CLAP/Audio Plugin.clap"
+          if [ -f "$CLAP_PATH" ]; then
+            echo "[OK] CLAP plugin exists"
+            ls -la "$CLAP_PATH"
+          else
+            echo "[WARN] CLAP not found"
+          fi
+
+          # At least VST3 must exist
+          if [ ! -d "$VST3_PATH" ]; then
+            echo "[ERROR] VST3 not found"
+            find build -name "Audio*" -type f -o -name "Audio*" -type d
+            exit 1
+          fi
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AudioPlugin-Linux-x64
+          path: |
+            build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3
+            build/AudioPlugin_artefacts/Release/LV2/Audio Plugin.lv2
+            build/AudioPlugin_artefacts/Release/CLAP/Audio Plugin.clap
+          retention-days: 30
+
+  test-macos:
+    needs: [build-macos]
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-macOS
+          path: ./plugin/
+
+      - name: Install plugin to expected location
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/VST3
+          cp -R "./plugin/VST3/Audio Plugin.vst3" ~/Library/Audio/Plug-Ins/VST3/AudioPlugin.vst3
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download pluginval
+        run: |
+          curl -L -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip pluginval.zip -d /usr/local/bin
+          chmod +x /usr/local/bin/pluginval.app/Contents/MacOS/pluginval
+          ln -sf /usr/local/bin/pluginval.app/Contents/MacOS/pluginval /usr/local/bin/pluginval
+
+      - name: Generate test fixtures
+        run: python tests/generate_references.py
+
+      - name: Build C++ unit tests
+        run: |
+          cd tests/unit
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+
+      - name: Run all tests
+        run: pytest tests/ -v
+
+  test-windows:
+    needs: [build-windows]
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-VST3-Windows-x64
+          path: ./plugin/
+
+      - name: Install plugin to expected location
+        shell: pwsh
+        run: |
+          $destDir = "C:\Program Files\Common Files\VST3"
+          Write-Host "=== Downloaded artifact structure ==="
+          Get-ChildItem "./plugin" -Recurse | Select-Object FullName
+
+          if (Test-Path "./plugin/Audio Plugin.vst3") {
+            Write-Host "Found Audio Plugin.vst3 folder in artifact"
+            Copy-Item -Recurse -Force "./plugin/Audio Plugin.vst3" "$destDir/AudioPlugin.vst3"
+          } else {
+            Write-Host "Artifact contains raw Contents - wrapping in bundle folder"
+            New-Item -ItemType Directory -Path "$destDir/AudioPlugin.vst3" -Force
+            Copy-Item -Recurse -Force "./plugin/*" "$destDir/AudioPlugin.vst3/"
+          }
+
+          Write-Host "=== Installed plugin structure ==="
+          Get-ChildItem "$destDir/AudioPlugin.vst3" -Recurse | Select-Object FullName
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download pluginval
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip" -OutFile pluginval.zip
+          Expand-Archive -Path pluginval.zip -DestinationPath C:\pluginval -Force
+
+      - name: Run pluginval
+        shell: pwsh
+        run: |
+          $pluginval = Get-ChildItem C:\pluginval -Filter "pluginval.exe" -Recurse | Select-Object -First 1
+          $vst3 = "C:\Program Files\Common Files\VST3\AudioPlugin.vst3"
+          Write-Host "Running pluginval on: $vst3"
+          & $pluginval.FullName --validate "$vst3" --strictness-level 5 --verbose
+
+      - name: Generate test input fixtures
+        run: python -c "import sys; sys.path.insert(0, 'tests'); from utils import generate_sine; import soundfile as sf; from pathlib import Path; d = Path('tests/fixtures/input'); d.mkdir(parents=True, exist_ok=True); sf.write(d / 'sine_440hz.wav', generate_sine(), 44100)"
+
+      - name: Build C++ unit tests
+        run: |
+          cd tests/unit
+          cmake -B build -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release
+
+      - name: Run all tests
+        run: pytest tests/ -v
+
+  # Package macOS installer (signed + notarized if secrets configured, unsigned otherwise)
+  package-macos:
+    needs: [build-macos, test-macos]
+    runs-on: macos-14
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-macOS
+          path: ./artifacts/
+
+      - name: Prepare build structure
+        run: |
+          mkdir -p build/AudioPlugin_artefacts/Release/VST3
+          mkdir -p build/AudioPlugin_artefacts/Release/AU
+
+          if [ -d "./artifacts/VST3/Audio Plugin.vst3" ]; then
+            cp -R "./artifacts/VST3/Audio Plugin.vst3" build/AudioPlugin_artefacts/Release/VST3/AudioPlugin.vst3
+          elif [ -d "./artifacts/Audio Plugin.vst3" ]; then
+            cp -R "./artifacts/Audio Plugin.vst3" build/AudioPlugin_artefacts/Release/VST3/AudioPlugin.vst3
+          fi
+
+          if [ -d "./artifacts/AU/Audio Plugin.component" ]; then
+            cp -R "./artifacts/AU/Audio Plugin.component" build/AudioPlugin_artefacts/Release/AU/AudioPlugin.component
+          elif [ -d "./artifacts/Audio Plugin.component" ]; then
+            cp -R "./artifacts/Audio Plugin.component" build/AudioPlugin_artefacts/Release/AU/AudioPlugin.component
+          fi
+
+          echo "=== Build structure ==="
+          find build/AudioPlugin_artefacts -type d
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(cat VERSION | tr -d '\n')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if signing is configured
+        id: signing
+        env:
+          APPLE_CERTIFICATE_APPLICATION: ${{ secrets.APPLE_CERTIFICATE_APPLICATION }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE_APPLICATION" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "::notice::Signing secrets found - will create SIGNED and NOTARIZED installer"
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo ""
+            echo "========================================================================"
+            echo "WARNING: BUILDING UNSIGNED INSTALLER"
+            echo "========================================================================"
+            echo ""
+            echo "  Apple signing secrets are NOT configured."
+            echo "  The installer will NOT be signed or notarized."
+            echo ""
+            echo "  Users will see Gatekeeper warnings like:"
+            echo "    'AudioPlugin.pkg cannot be opened because it is from an"
+            echo "     unidentified developer'"
+            echo ""
+            echo "  To install, users must: Right-click -> Open -> Open"
+            echo "  Or: System Settings -> Privacy & Security -> Open Anyway"
+            echo ""
+            echo "  To enable signing, configure these GitHub secrets:"
+            echo "    - APPLE_CERTIFICATE_APPLICATION (base64 .p12)"
+            echo "    - APPLE_CERTIFICATE_INSTALLER (base64 .p12)"
+            echo "    - APPLE_CERTIFICATE_PASSWORD"
+            echo "    - APPLE_ID"
+            echo "    - APPLE_TEAM_ID"
+            echo "    - APPLE_APP_PASSWORD"
+            echo "    - APPLE_APP_IDENTITY"
+            echo "    - APPLE_PKG_IDENTITY"
+            echo "    - BUNDLE_ID"
+            echo ""
+            echo "========================================================================"
+            echo ""
+          fi
+
+      - name: Import certificates
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          APPLE_CERTIFICATE_APPLICATION: ${{ secrets.APPLE_CERTIFICATE_APPLICATION }}
+          APPLE_CERTIFICATE_INSTALLER: ${{ secrets.APPLE_CERTIFICATE_INSTALLER }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$APPLE_CERTIFICATE_APPLICATION" | base64 --decode > $RUNNER_TEMP/app.p12
+          echo "$APPLE_CERTIFICATE_INSTALLER" | base64 --decode > $RUNNER_TEMP/installer.p12
+
+          security import $RUNNER_TEMP/app.p12 -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security import $RUNNER_TEMP/installer.p12 -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+
+          curl -sO https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import DeveloperIDG2CA.cer -k "$KEYCHAIN_PATH"
+
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "=== Available signing identities ==="
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Store notarization credentials
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials "notarytool-profile" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD"
+
+      - name: Build SIGNED installer
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          APP_IDENTITY: ${{ secrets.APPLE_APP_IDENTITY }}
+          PKG_IDENTITY: ${{ secrets.APPLE_PKG_IDENTITY }}
+          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG_ROOT="build/pkg-root"
+          PKG_OUT="build/installer"
+          PLUGIN_NAME="AudioPlugin"
+
+          mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/VST3"
+          mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/Components"
+          mkdir -p "$PKG_OUT"
+
+          cp -R build/AudioPlugin_artefacts/Release/VST3/AudioPlugin.vst3 "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/"
+          cp -R build/AudioPlugin_artefacts/Release/AU/AudioPlugin.component "$PKG_ROOT/Library/Audio/Plug-Ins/Components/"
+
+          echo "=== Signing VST3 ==="
+          codesign --force --deep --sign "$APP_IDENTITY" \
+            --options runtime --timestamp \
+            "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/AudioPlugin.vst3"
+
+          echo "=== Signing AU ==="
+          codesign --force --deep --sign "$APP_IDENTITY" \
+            --options runtime --timestamp \
+            "$PKG_ROOT/Library/Audio/Plug-Ins/Components/AudioPlugin.component"
+
+          codesign --verify --deep --strict "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/AudioPlugin.vst3"
+          codesign --verify --deep --strict "$PKG_ROOT/Library/Audio/Plug-Ins/Components/AudioPlugin.component"
+
+          echo "=== Building package ==="
+          pkgbuild \
+            --root "$PKG_ROOT" \
+            --identifier "$BUNDLE_ID.pkg" \
+            --version "$VERSION" \
+            --install-location "/" \
+            "$PKG_OUT/$PLUGIN_NAME-unsigned.pkg"
+
+          echo "=== Signing package ==="
+          productsign \
+            --sign "$PKG_IDENTITY" \
+            "$PKG_OUT/$PLUGIN_NAME-unsigned.pkg" \
+            "$PKG_OUT/$PLUGIN_NAME-${VERSION}-macOS.pkg"
+
+          rm "$PKG_OUT/$PLUGIN_NAME-unsigned.pkg"
+          pkgutil --check-signature "$PKG_OUT/$PLUGIN_NAME-${VERSION}-macOS.pkg"
+
+      - name: Notarize
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG="build/installer/AudioPlugin-${VERSION}-macOS.pkg"
+
+          echo "=== Submitting for notarization ==="
+          xcrun notarytool submit "$PKG" \
+            --keychain-profile "notarytool-profile" \
+            --wait
+
+          echo "=== Stapling ticket ==="
+          xcrun stapler staple "$PKG"
+          xcrun stapler validate "$PKG"
+
+      - name: Build UNSIGNED installer
+        if: steps.signing.outputs.enabled == 'false'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG_ROOT="build/pkg-root"
+          PKG_OUT="build/installer"
+          PLUGIN_NAME="AudioPlugin"
+
+          echo ""
+          echo "========================================================================"
+          echo "BUILDING UNSIGNED INSTALLER - GATEKEEPER WILL BLOCK THIS"
+          echo "========================================================================"
+          echo ""
+
+          mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/VST3"
+          mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/Components"
+          mkdir -p "$PKG_OUT"
+
+          cp -R build/AudioPlugin_artefacts/Release/VST3/AudioPlugin.vst3 "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/"
+          cp -R build/AudioPlugin_artefacts/Release/AU/AudioPlugin.component "$PKG_ROOT/Library/Audio/Plug-Ins/Components/"
+
+          echo "=== Building UNSIGNED package ==="
+          pkgbuild \
+            --root "$PKG_ROOT" \
+            --identifier "com.example.audioplugin.pkg" \
+            --version "$VERSION" \
+            --install-location "/" \
+            "$PKG_OUT/$PLUGIN_NAME-${VERSION}-macOS-UNSIGNED.pkg"
+
+          echo ""
+          echo "========================================================================"
+          echo "UNSIGNED INSTALLER CREATED"
+          echo "========================================================================"
+          echo ""
+          echo "  Output: $PKG_OUT/$PLUGIN_NAME-${VERSION}-macOS-UNSIGNED.pkg"
+          echo ""
+          echo "  This installer is NOT signed and NOT notarized."
+          echo "  macOS Gatekeeper WILL block it by default."
+          echo ""
+          echo "  Users must bypass Gatekeeper to install:"
+          echo "    1. Right-click the .pkg file"
+          echo "    2. Select 'Open'"
+          echo "    3. Click 'Open' in the warning dialog"
+          echo ""
+          echo "  Or via System Settings:"
+          echo "    1. Try to open the .pkg (it will be blocked)"
+          echo "    2. Go to System Settings -> Privacy & Security"
+          echo "    3. Click 'Open Anyway' next to the blocked app message"
+          echo ""
+          echo "========================================================================"
+          echo ""
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AudioPlugin-Installer-macOS
+          path: build/installer/AudioPlugin-*.pkg
+          retention-days: 30
+
+  # Package Windows installer
+  package-windows:
+    needs: [build-windows, test-windows]
+    runs-on: windows-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-VST3-Windows-x64
+          path: ./artifacts/
+
+      - name: Prepare build structure
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "build/AudioPlugin_artefacts/Release/VST3" -Force
+
+          if (Test-Path "./artifacts/Audio Plugin.vst3") {
+            Copy-Item -Recurse "./artifacts/Audio Plugin.vst3" "build/AudioPlugin_artefacts/Release/VST3/"
+          } else {
+            New-Item -ItemType Directory -Path "build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3" -Force
+            Copy-Item -Recurse "./artifacts/*" "build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3/"
+          }
+
+          Write-Host "=== Build structure ==="
+          Get-ChildItem -Recurse "build/AudioPlugin_artefacts/Release/VST3" | Select-Object FullName
+
+      - name: Get version
+        id: version
+        shell: pwsh
+        run: |
+          $version = Get-Content VERSION -Raw
+          $version = $version.Trim()
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          cd installer/windows
+          & $iscc /DVERSION=$version installer.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AudioPlugin-Installer-Windows
+          path: installer/windows/AudioPlugin-*.exe
+          retention-days: 30
+
+  # Check if release is needed
+  check-release:
+    needs: [build-windows, build-macos, build-linux, test-macos, test-windows]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if VERSION changed
+        id: check
+        run: |
+          VERSION=$(cat VERSION | tr -d '\n')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists, skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version $VERSION detected, will create release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+  # Create GitHub release with installers
+  release:
+    needs: [check-release, package-macos, package-windows]
+    runs-on: ubuntu-latest
+    if: needs.check-release.outputs.should_release == 'true'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract changelog for version
+        id: changelog
+        run: |
+          VERSION="${{ needs.check-release.outputs.version }}"
+          # Extract the section between ## [$VERSION] and the next ## heading
+          NOTES=$(sed -n "/^## \[$VERSION\]/,/^## \[/{/^## \[/!p}" CHANGELOG.md | sed '/^$/d')
+          if [ -z "$NOTES" ]; then
+            NOTES="Release v$VERSION"
+          fi
+          # Write to file to preserve newlines
+          echo "$NOTES" > /tmp/release_notes.txt
+
+      - name: Download macOS installer
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-Installer-macOS
+          path: ./installers/
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-Installer-Windows
+          path: ./installers/
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-Linux-x64
+          path: ./linux-plugins/
+
+      - name: Create Linux archive
+        run: |
+          VERSION="${{ needs.check-release.outputs.version }}"
+          cd linux-plugins
+          zip -r "../installers/AudioPlugin-${VERSION}-Linux-x64.zip" .
+
+      - name: List installers
+        run: ls -la installers/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.check-release.outputs.version }}
+          name: AudioPlugin v${{ needs.check-release.outputs.version }}
+          draft: true
+          body_path: /tmp/release_notes.txt
+          files: |
+            installers/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to R2 CDN
+        if: false  # Enable when R2 secrets are configured
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        run: |
+          for f in installers/*; do
+            [ -f "$f" ] && aws s3 cp "$f" "s3://${R2_BUCKET_NAME:-releases}/" \
+              --endpoint-url "$AWS_ENDPOINT_URL" --region auto
+          done
+
+  # Manual/tag release (when pushing a tag directly)
+  release-from-tag:
+    needs: [package-macos, package-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Extract changelog for version
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          NOTES=$(sed -n "/^## \[$VERSION\]/,/^## \[/{/^## \[/!p}" CHANGELOG.md | sed '/^$/d')
+          if [ -z "$NOTES" ]; then
+            NOTES="Release v$VERSION"
+          fi
+          echo "$NOTES" > /tmp/release_notes.txt
+
+      - name: Download macOS installer
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-Installer-macOS
+          path: ./installers/
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-Installer-Windows
+          path: ./installers/
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: AudioPlugin-Linux-x64
+          path: ./linux-plugins/
+
+      - name: Create Linux archive
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cd linux-plugins
+          zip -r "../installers/AudioPlugin-${VERSION}-Linux-x64.zip" .
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: AudioPlugin v${{ steps.version.outputs.version }}
+          draft: true
+          body_path: /tmp/release_notes.txt
+          files: |
+            installers/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to R2 CDN
+        if: false  # Enable when R2 secrets are configured
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        run: |
+          for f in installers/*; do
+            [ -f "$f" ] && aws s3 cp "$f" "s3://${R2_BUCKET_NAME:-releases}/" \
+              --endpoint-url "$AWS_ENDPOINT_URL" --region auto
+          done

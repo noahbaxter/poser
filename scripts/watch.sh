@@ -1,0 +1,70 @@
+#!/bin/bash
+# Auto-reload development server
+# Watches src/, web/ - rebuilds and relaunches on changes
+#
+# Usage: ./scripts/watch.sh
+
+set -e
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+source "$SCRIPT_DIR/_common.sh"
+
+CMAKE_BUILD_DIR="$PROJECT_ROOT/build-standalone"
+APP_PATH="$CMAKE_BUILD_DIR/${PLUGIN_NAME}_artefacts/Debug/Standalone/Audio Plugin.app"
+APP_NAME="Audio Plugin"
+
+# Check for fswatch
+if ! command -v fswatch &> /dev/null; then
+    echo -e "${RED}fswatch not found. Install with: brew install fswatch${NC}"
+    exit 1
+fi
+
+# Gracefully quit app (allows it to save window position)
+kill_app() {
+    osascript -e "tell application \"$APP_NAME\" to quit" 2>/dev/null &
+    sleep 0.1
+    pkill -x "$APP_NAME" 2>/dev/null || true
+    for i in {1..10}; do
+        pgrep -x "$APP_NAME" >/dev/null || break
+        sleep 0.1
+    done
+}
+
+# Cleanup on exit
+cleanup() {
+    echo -e "\n${YELLOW}Stopping watch...${NC}"
+    kill_app
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+# Initial build and launch
+echo -e "${CYAN}=== $PLUGIN_NAME Watch Mode ===${NC}"
+echo -e "Watching: src/, web/"
+echo -e "Press Ctrl+C to stop\n"
+
+"$SCRIPT_DIR/standalone.sh"
+
+# Watch and rebuild
+# -l 0.5 = 500ms latency (debounce rapid changes)
+fswatch -o -l 0.5 "$PROJECT_ROOT/src" "$PROJECT_ROOT/web" | while read -r _; do
+    START=$(python3 -c 'import time; print(time.time())')
+    echo -e "\n${YELLOW}Change detected, rebuilding...${NC}"
+
+    # Touch CMakeLists to force BinaryData regeneration (CMake misses web/ changes)
+    touch "$PROJECT_ROOT/CMakeLists.txt"
+
+    # Build first, only kill/relaunch if successful
+    if "$SCRIPT_DIR/standalone.sh" --no-launch; then
+        BUILD_DONE=$(python3 -c 'import time; print(time.time())')
+        kill_app
+        open -g "$APP_PATH"
+        END=$(python3 -c 'import time; print(time.time())')
+        BUILD_TIME=$(python3 -c "print(f'{${BUILD_DONE} - ${START}:.2f}s')")
+        TOTAL_TIME=$(python3 -c "print(f'{${END} - ${START}:.2f}s')")
+        echo -e "${GREEN}✓ Reloaded${NC} (build: ${BUILD_TIME}, total: ${TOTAL_TIME})"
+    else
+        echo -e "${RED}Build failed - keeping current version${NC}"
+    fi
+done
