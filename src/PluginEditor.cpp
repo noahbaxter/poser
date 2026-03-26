@@ -10,7 +10,16 @@ juce::AudioProcessorEditor* PoserProcessor::createEditor()
 PoserEditor::PoserEditor(PoserProcessor& p)
     : AudioProcessorEditor(&p),
       audioProcessor(p),
-      gainRelay{"gain"},
+      micSelectRelay{"mic_select"},
+      cabSelectRelay{"cab_select"},
+      speakerSelectRelay{"speaker_select"},
+      positionSelectRelay{"position_select"},
+      micBlendRelay{"mic_blend"},
+      cabBlendRelay{"cab_blend"},
+      speakerBlendRelay{"speaker_blend"},
+      positionBlendRelay{"position_blend"},
+      dryWetRelay{"dry_wet"},
+      outputTrimRelay{"output_trim"},
       webView{
           juce::WebBrowserComponent::Options{}
               .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
@@ -21,11 +30,27 @@ PoserEditor::PoserEditor(PoserProcessor& p)
               .withNativeIntegrationEnabled()
               .withResourceProvider(
                   [this](const auto& url) { return getResource(url); })
-              .withOptionsFrom(gainRelay)
+              .withOptionsFrom(micSelectRelay)
+              .withOptionsFrom(cabSelectRelay)
+              .withOptionsFrom(speakerSelectRelay)
+              .withOptionsFrom(positionSelectRelay)
+              .withOptionsFrom(micBlendRelay)
+              .withOptionsFrom(cabBlendRelay)
+              .withOptionsFrom(speakerBlendRelay)
+              .withOptionsFrom(positionBlendRelay)
+              .withOptionsFrom(dryWetRelay)
+              .withOptionsFrom(outputTrimRelay)
       },
-      gainAttachment{
-          *audioProcessor.getAPVTS().getParameter("gain"),
-          gainRelay, nullptr}
+      micSelectAttach{*audioProcessor.getAPVTS().getParameter("mic_select"), micSelectRelay, nullptr},
+      cabSelectAttach{*audioProcessor.getAPVTS().getParameter("cab_select"), cabSelectRelay, nullptr},
+      speakerSelectAttach{*audioProcessor.getAPVTS().getParameter("speaker_select"), speakerSelectRelay, nullptr},
+      positionSelectAttach{*audioProcessor.getAPVTS().getParameter("position_select"), positionSelectRelay, nullptr},
+      micBlendAttach{*audioProcessor.getAPVTS().getParameter("mic_blend"), micBlendRelay, nullptr},
+      cabBlendAttach{*audioProcessor.getAPVTS().getParameter("cab_blend"), cabBlendRelay, nullptr},
+      speakerBlendAttach{*audioProcessor.getAPVTS().getParameter("speaker_blend"), speakerBlendRelay, nullptr},
+      positionBlendAttach{*audioProcessor.getAPVTS().getParameter("position_blend"), positionBlendRelay, nullptr},
+      dryWetAttach{*audioProcessor.getAPVTS().getParameter("dry_wet"), dryWetRelay, nullptr},
+      outputTrimAttach{*audioProcessor.getAPVTS().getParameter("output_trim"), outputTrimRelay, nullptr}
 {
     addAndMakeVisible(webView);
     webView.setWantsKeyboardFocus(false);
@@ -34,7 +59,6 @@ PoserEditor::PoserEditor(PoserProcessor& p)
     setResizable(false, false);
     setSize(440, 480);
 
-    // Delay navigation for WebView2 async initialization on Windows
     juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<PoserEditor>(this)]() {
         if (safeThis != nullptr)
             safeThis->webView.goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
@@ -50,7 +74,7 @@ PoserEditor::~PoserEditor()
 
 void PoserEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1e1e1e));
+    g.fillAll(juce::Colour(0xffffffff));
 }
 
 void PoserEditor::resized()

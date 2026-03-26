@@ -21,14 +21,32 @@ private:
     bool versionPushed = false;
     int timerTicks = 0;
 
-    // WebView relay objects (bridge between WebView and parameters)
-    juce::WebSliderRelay gainRelay;
+    // WebView relay objects — one per parameter
+    juce::WebSliderRelay micSelectRelay;
+    juce::WebSliderRelay cabSelectRelay;
+    juce::WebSliderRelay speakerSelectRelay;
+    juce::WebSliderRelay positionSelectRelay;
+    juce::WebSliderRelay micBlendRelay;
+    juce::WebSliderRelay cabBlendRelay;
+    juce::WebSliderRelay speakerBlendRelay;
+    juce::WebSliderRelay positionBlendRelay;
+    juce::WebSliderRelay dryWetRelay;
+    juce::WebSliderRelay outputTrimRelay;
 
-    // WebView component (must be declared after relays)
+    // WebView component (must be after relays)
     juce::WebBrowserComponent webView;
 
-    // Parameter attachments (connect relays to APVTS parameters)
-    juce::WebSliderParameterAttachment gainAttachment;
+    // Parameter attachments
+    juce::WebSliderParameterAttachment micSelectAttach;
+    juce::WebSliderParameterAttachment cabSelectAttach;
+    juce::WebSliderParameterAttachment speakerSelectAttach;
+    juce::WebSliderParameterAttachment positionSelectAttach;
+    juce::WebSliderParameterAttachment micBlendAttach;
+    juce::WebSliderParameterAttachment cabBlendAttach;
+    juce::WebSliderParameterAttachment speakerBlendAttach;
+    juce::WebSliderParameterAttachment positionBlendAttach;
+    juce::WebSliderParameterAttachment dryWetAttach;
+    juce::WebSliderParameterAttachment outputTrimAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PoserEditor)
 };

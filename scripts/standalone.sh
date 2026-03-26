@@ -16,8 +16,12 @@ APP_PATH="$CMAKE_BUILD_DIR/${PLUGIN_NAME}_artefacts/Debug/Standalone/Poser EQ.ap
 
 # Parse flags
 LAUNCH=true
+FOREGROUND=false
 for arg in "$@"; do
     case $arg in
+        --fg|--foreground)
+            FOREGROUND=true
+            ;;
         --open)
             if [ -d "$APP_PATH" ]; then
                 echo -e "${GREEN}Opening existing build...${NC}"
@@ -87,6 +91,10 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 
 if [ "$LAUNCH" = true ]; then
+    if [ "$FOREGROUND" = true ]; then
+        echo -e "${GREEN}✓ Built. Launching in foreground (Ctrl+C to quit)...${NC}"
+        exec "$APP_PATH/Contents/MacOS/Poser EQ"
+    fi
     echo -e "${GREEN}✓ Built. Launching...${NC}"
     open "$APP_PATH"
 else

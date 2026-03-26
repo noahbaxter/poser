@@ -39,10 +39,7 @@ public:
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
 
 protected:
-    // Call in prepareToPlay to enable smoothing for a parameter
     void enableSmoothing(const juce::String& paramId, double smoothingTimeSeconds = 0.02);
-
-    // Call per-sample in processBlock to get smoothed value
     float getSmoothedParam(const juce::String& paramId);
 
 private:
@@ -51,6 +48,43 @@ private:
     double currentSampleRate = 44100.0;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    // FFT with overlap-add (50% overlap, Hann window)
+    static constexpr int fftOrder = 10;
+    static constexpr int fftSize = 1 << fftOrder;  // 1024
+    static constexpr int hopSize = fftSize / 2;     // 512
+    juce::dsp::FFT fft{fftOrder};
+
+    // Hann window
+    float window[fftSize] = {};
+
+    // Per-channel input FIFO (collects fftSize samples)
+    float inputFifo[2][fftSize] = {};
+
+    // Per-channel output accumulator (overlap-add target, 2x fftSize for overlap)
+    float outputAccum[2][fftSize * 2] = {};
+
+    // Position in the input FIFO
+    int fifoPos = 0;
+
+    // Position in the output accumulator to read from
+    int outReadPos = 0;
+
+    // FFT work buffer
+    float fftWork[fftSize * 2] = {};
+
+    // Magnitude response
+    float magnitudeResponse[fftSize / 2 + 1] = {};
+    bool needsResponseUpdate = true;
+
+    // Bin mapping
+    int binMapping[fftSize / 2 + 1] = {};
+
+    // Parameter change detection
+    float prevParams[10] = {};
+
+    void recomputeMagnitudeResponse();
+    void processFFTFrame(int channel);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PoserProcessor)
 };

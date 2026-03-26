@@ -1,3 +1,18 @@
+import { setParameterNormalized, getParameterNormalized, onParameterChange, parameterDragStarted, parameterDragEnded } from './lib/juce-bridge.js';
+
+// ---- Parameter helpers ----
+// Selectors: int 0-N mapped to normalized 0-1
+// Blends: -5.0 to 5.0 mapped to normalized 0-1 (UI shows -500% to 500%)
+// Dry/wet: 0-1 normalized directly
+// Trim: -24 to 24 mapped to normalized 0-1
+
+function selectToNorm(index, max) { return index / max; }
+function normToSelect(norm, max) { return Math.round(norm * max); }
+function blendToNorm(v) { return (v + 500) / 1000; }  // -500..500 → 0..1
+function normToBlend(n) { return n * 1000 - 500; }      // 0..1 → -500..500
+function trimToNorm(v) { return (v + 24) / 48; }
+function normToTrim(n) { return n * 48 - 24; }
+
 // ---- Data ----
 
 const COMPONENTS = {
@@ -297,53 +312,69 @@ function createBlendKnob(container, opts) {
 }
 
 const blendKnobElements = {};
+const blendKnobs = {};
 
 for (const [id, comp] of Object.entries(COMPONENTS)) {
     const slot = document.getElementById(`blend-${id}`);
     state[id].blend = 100;
 
-    const knob = createBlendKnob(slot, {
+    blendKnobs[id] = createBlendKnob(slot, {
         min: -500,
         max: 500,
         value: 100,
         step: 1,
         formatValue: (v) => `${v > 0 ? '+' : ''}${v}%`,
-        onChange: (v) => { state[id].blend = v; },
+        onChange: (v) => {
+            state[id].blend = v;
+            setParameterNormalized(`${id}_blend`, blendToNorm(v));
+        },
     });
     blendKnobElements[id] = slot.querySelector('.blend-knob');
 }
 
 // ---- Build master knobs ----
 
-createMasterKnob(document.getElementById('master-drywet'), {
+const dryWetKnob = createMasterKnob(document.getElementById('master-drywet'), {
     min: 0,
     max: 100,
     value: 100,
     step: 1,
     formatValue: (v) => `${v}%`,
-    onChange: (v) => { state.masterDryWet = v; },
+    onChange: (v) => {
+        state.masterDryWet = v;
+        setParameterNormalized('dry_wet', v / 100);
+    },
 });
 
-createMasterKnob(document.getElementById('master-trim'), {
+const trimKnob = createMasterKnob(document.getElementById('master-trim'), {
     min: -24,
     max: 24,
     value: 0,
     step: 0.1,
     formatValue: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`,
-    onChange: (v) => { state.outputTrim = v; },
+    onChange: (v) => {
+        state.outputTrim = v;
+        setParameterNormalized('output_trim', trimToNorm(v));
+    },
 });
 
 // ---- Build selector panels ----
 
+const selectors = {};
+
 for (const [id, comp] of Object.entries(COMPONENTS)) {
     const panel = document.getElementById(`panel-${id}`);
 
-    createSelector(panel, {
+    selectors[id] = createSelector(panel, {
         options: comp.options,
         defaultIndex: comp.defaultIndex,
         onChange: (index, name) => {
             state[id].selected = index;
-            console.log(`${id}: ${name}`);
+            const paramId = `${id}_select`;
+            const maxVal = comp.options.length - 1;
+            parameterDragStarted(paramId);
+            setParameterNormalized(paramId, selectToNorm(index, maxVal));
+            parameterDragEnded(paramId);
         },
     });
 }
@@ -370,6 +401,15 @@ function toggleComponent(id) {
     state[id].enabled = !state[id].enabled;
     const knobEl = blendKnobElements[id];
     if (knobEl) knobEl.classList.toggle('disabled', !state[id].enabled);
+
+    // Set blend to 0 in C++ when disabled, restore when enabled
+    if (!state[id].enabled) {
+        state[id]._savedBlend = state[id].blend;
+        setParameterNormalized(`${id}_blend`, blendToNorm(0));
+    } else {
+        const restore = state[id]._savedBlend ?? 100;
+        setParameterNormalized(`${id}_blend`, blendToNorm(restore));
+    }
 }
 
 // Shift+click on blend knobs
@@ -392,3 +432,43 @@ tabs.forEach(t => {
         }
     });
 });
+
+// ---- Sync initial state: push all JS defaults to C++ on load ----
+
+// Read initial state from C++ backend and sync UI to match
+function syncFromBackend() {
+    for (const [id, comp] of Object.entries(COMPONENTS)) {
+        // Read and apply selector
+        const selectNorm = getParameterNormalized(`${id}_select`);
+        const maxVal = comp.options.length - 1;
+        const index = normToSelect(selectNorm, maxVal);
+        state[id].selected = index;
+        if (selectors[id]) selectors[id].selectIndex(index);
+
+        // Read and apply blend
+        const blendNorm = getParameterNormalized(`${id}_blend`);
+        const blendVal = normToBlend(blendNorm);
+        state[id].blend = blendVal;
+        if (blendKnobs[id]) blendKnobs[id].setValue(blendVal);
+    }
+
+    // Read and apply dry/wet
+    const dryWetVal = getParameterNormalized('dry_wet') * 100;
+    state.masterDryWet = dryWetVal;
+    if (dryWetKnob) dryWetKnob.setValue(dryWetVal);
+
+    // Read and apply trim
+    const trimVal = normToTrim(getParameterNormalized('output_trim'));
+    state.outputTrim = trimVal;
+    if (trimKnob) trimKnob.setValue(trimVal);
+}
+
+// Sync once bridge is ready
+function trySyncFromBackend() {
+    try {
+        syncFromBackend();
+    } catch {
+        setTimeout(trySyncFromBackend, 50);
+    }
+}
+trySyncFromBackend();
