@@ -189,6 +189,41 @@ const trimKnob = new Knob(document.getElementById('master-trim'), {
     fromNorm: (n) => n * 48 - 24,
 });
 
+// ---- Curve shaping knobs ----
+
+// Use getParameterNormalized/setParameterNormalized directly — let JUCE handle the skew.
+// The Knob component works in normalized 0-1 space, we just format the display from the
+// actual parameter value via getParameterScaled (not yet available) or approximate.
+
+const lowCutKnob = new Knob(document.getElementById('knob-low-cut'), {
+    param: 'curve_low_cut',
+    min: 0, max: 1, step: 0.001,
+    defaultValue: 0,
+    className: 'master-knob',
+    formatValue: (v) => {
+        const hz = 20 + (2000 - 20) * Math.pow(v, 1.0 / 0.3);
+        return hz >= 1000 ? `${(hz/1000).toFixed(1)}kHz` : `${Math.round(hz)}Hz`;
+    },
+    tooltipAbove: true,
+    // Already in normalized space, no conversion needed
+    toNorm: (v) => v,
+    fromNorm: (n) => n,
+});
+
+const highCutKnob = new Knob(document.getElementById('knob-high-cut'), {
+    param: 'curve_high_cut',
+    min: 0, max: 1, step: 0.001,
+    defaultValue: 1,
+    className: 'master-knob',
+    formatValue: (v) => {
+        const hz = 1000 + (20000 - 1000) * Math.pow(v, 1.0 / 0.3);
+        return hz >= 1000 ? `${(hz/1000).toFixed(1)}kHz` : `${Math.round(hz)}Hz`;
+    },
+    tooltipAbove: true,
+    toNorm: (v) => v,
+    fromNorm: (n) => n,
+});
+
 // ---- Build selector panels ----
 
 const selectors = {};

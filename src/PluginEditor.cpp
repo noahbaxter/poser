@@ -20,6 +20,9 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       positionBlendRelay{"position_blend"},
       masterPushRelay{"master_push"},
       outputTrimRelay{"output_trim"},
+      curveLowCutRelay{"curve_low_cut"},
+      curveHighCutRelay{"curve_high_cut"},
+      curveModeRelay{"curve_mode"},
       webView{
           juce::WebBrowserComponent::Options{}
               .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
@@ -40,6 +43,9 @@ PoserEditor::PoserEditor(PoserProcessor& p)
               .withOptionsFrom(positionBlendRelay)
               .withOptionsFrom(masterPushRelay)
               .withOptionsFrom(outputTrimRelay)
+              .withOptionsFrom(curveLowCutRelay)
+              .withOptionsFrom(curveHighCutRelay)
+              .withOptionsFrom(curveModeRelay)
       },
       micSelectAttach{*audioProcessor.getAPVTS().getParameter("mic_select"), micSelectRelay, nullptr},
       cabSelectAttach{*audioProcessor.getAPVTS().getParameter("cab_select"), cabSelectRelay, nullptr},
@@ -50,7 +56,10 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       speakerBlendAttach{*audioProcessor.getAPVTS().getParameter("speaker_blend"), speakerBlendRelay, nullptr},
       positionBlendAttach{*audioProcessor.getAPVTS().getParameter("position_blend"), positionBlendRelay, nullptr},
       masterPushAttach{*audioProcessor.getAPVTS().getParameter("master_push"), masterPushRelay, nullptr},
-      outputTrimAttach{*audioProcessor.getAPVTS().getParameter("output_trim"), outputTrimRelay, nullptr}
+      outputTrimAttach{*audioProcessor.getAPVTS().getParameter("output_trim"), outputTrimRelay, nullptr},
+      curveLowCutAttach{*audioProcessor.getAPVTS().getParameter("curve_low_cut"), curveLowCutRelay, nullptr},
+      curveHighCutAttach{*audioProcessor.getAPVTS().getParameter("curve_high_cut"), curveHighCutRelay, nullptr},
+      curveModeAttach{*audioProcessor.getAPVTS().getParameter("curve_mode"), curveModeRelay, nullptr}
 {
     addAndMakeVisible(webView);
     webView.setWantsKeyboardFocus(false);

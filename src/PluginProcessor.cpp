@@ -52,6 +52,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
         juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f,
         juce::AudioParameterFloatAttributes().withLabel("dB")));
 
+    // Curve shaping: low/high cut on the EQ curve (not the audio)
+    // These fade the magnitude curve to 0dB below/above the cutoff frequency
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"curve_low_cut", 1}, "Curve Low Cut",
+        juce::NormalisableRange<float>(20.0f, 2000.0f, 1.0f, 0.3f), 20.0f,
+        juce::AudioParameterFloatAttributes().withLabel("Hz")));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"curve_high_cut", 1}, "Curve High Cut",
+        juce::NormalisableRange<float>(1000.0f, 20000.0f, 1.0f, 0.3f), 20000.0f,
+        juce::AudioParameterFloatAttributes().withLabel("Hz")));
+
+    // Mode: 0 = both (boost + cut), 1 = boost only, 2 = cut only
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{"curve_mode", 1}, "Curve Mode", 0, 2, 0));
+
     return {params.begin(), params.end()};
 }
 
@@ -150,11 +165,15 @@ void PoserProcessor::recomputeMagnitudeResponse()
     int cabSel      = static_cast<int>(apvts.getRawParameterValue("cab_select")->load());
     int speakerSel  = static_cast<int>(apvts.getRawParameterValue("speaker_select")->load());
     int positionSel = static_cast<int>(apvts.getRawParameterValue("position_select")->load());
-    float micBlend      = apvts.getRawParameterValue("mic_blend")->load();      // 0-1
-    float cabBlend      = apvts.getRawParameterValue("cab_blend")->load();      // 0-1
-    float speakerBlend  = apvts.getRawParameterValue("speaker_blend")->load();  // 0-1
-    float positionBlend = apvts.getRawParameterValue("position_blend")->load(); // 0-1
-    float masterPush    = apvts.getRawParameterValue("master_push")->load();    // -5 to 5
+    float micBlend      = apvts.getRawParameterValue("mic_blend")->load();
+    float cabBlend      = apvts.getRawParameterValue("cab_blend")->load();
+    float speakerBlend  = apvts.getRawParameterValue("speaker_blend")->load();
+    float positionBlend = apvts.getRawParameterValue("position_blend")->load();
+    float masterPush    = apvts.getRawParameterValue("master_push")->load();
+    float lowCutHz      = apvts.getRawParameterValue("curve_low_cut")->load();
+    float highCutHz     = apvts.getRawParameterValue("curve_high_cut")->load();
+    int   curveMode     = static_cast<int>(apvts.getRawParameterValue("curve_mode")->load());
+
 
     for (int i = 0; i < complexSize; ++i)
     {
@@ -168,8 +187,38 @@ void PoserProcessor::recomputeMagnitudeResponse()
             totalDb += ::CurveData::kSpeakers[speakerSel].data[cb] * speakerBlend;
         if (positionBlend > 0.0f && positionSel >= 0 && positionSel < ::CurveData::kNumPositions)
             totalDb += ::CurveData::kPositions[positionSel].data[cb] * positionBlend;
+
         // Master push scales the entire composite curve
         totalDb *= masterPush;
+
+        // Curve mode: boost only / cut only
+        if (curveMode == 1 && totalDb < 0.0f) totalDb = 0.0f;  // boost only
+        if (curveMode == 2 && totalDb > 0.0f) totalDb = 0.0f;  // cut only
+
+        // Low/high cut: fade the curve to 0dB outside the frequency range
+        // Uses ~6dB/octave rolloff (one octave of fade)
+        float fftFreq = static_cast<float>(i) * static_cast<float>(currentSampleRate) / static_cast<float>(fftSize);
+
+        if (fftFreq < lowCutHz && lowCutHz > 20.0f)
+        {
+            // Fade from 0 at lowCutHz/2 to 1 at lowCutHz (one octave below)
+            float fadeStart = lowCutHz * 0.5f;
+            if (fftFreq <= fadeStart)
+                totalDb = 0.0f;
+            else
+                totalDb *= (fftFreq - fadeStart) / (lowCutHz - fadeStart);
+        }
+
+        if (fftFreq > highCutHz && highCutHz < 20000.0f)
+        {
+            // Fade from 1 at highCutHz to 0 at highCutHz*2 (one octave above)
+            float fadeEnd = highCutHz * 2.0f;
+            if (fftFreq >= fadeEnd)
+                totalDb = 0.0f;
+            else
+                totalDb *= 1.0f - (fftFreq - highCutHz) / (fadeEnd - highCutHz);
+        }
+
         magnitudeResponse[i] = std::pow(10.0f, totalDb / 20.0f);
     }
 
@@ -250,7 +299,7 @@ void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 
     // Parameter change detection
     {
-        float params[10] = {
+        float params[13] = {
             apvts.getRawParameterValue("mic_select")->load(),
             apvts.getRawParameterValue("cab_select")->load(),
             apvts.getRawParameterValue("speaker_select")->load(),
@@ -261,6 +310,9 @@ void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             apvts.getRawParameterValue("position_blend")->load(),
             apvts.getRawParameterValue("master_push")->load(),
             apvts.getRawParameterValue("output_trim")->load(),
+            apvts.getRawParameterValue("curve_low_cut")->load(),
+            apvts.getRawParameterValue("curve_high_cut")->load(),
+            apvts.getRawParameterValue("curve_mode")->load(),
         };
         if (needsResponseUpdate || std::memcmp(params, prevParams, sizeof(params)) != 0)
         {

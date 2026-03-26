@@ -81,7 +81,7 @@ private:
     int binMapping[complexSize] = {};
 
     // Parameter change detection
-    float prevParams[10] = {};
+    float prevParams[13] = {};
 
     void recomputeMagnitudeResponse();
     void processFFTFrame(int channel);

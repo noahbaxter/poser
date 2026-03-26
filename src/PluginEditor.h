@@ -32,6 +32,9 @@ private:
     juce::WebSliderRelay positionBlendRelay;
     juce::WebSliderRelay masterPushRelay;
     juce::WebSliderRelay outputTrimRelay;
+    juce::WebSliderRelay curveLowCutRelay;
+    juce::WebSliderRelay curveHighCutRelay;
+    juce::WebSliderRelay curveModeRelay;
 
     // WebView component (must be after relays)
     juce::WebBrowserComponent webView;
@@ -47,6 +50,9 @@ private:
     juce::WebSliderParameterAttachment positionBlendAttach;
     juce::WebSliderParameterAttachment masterPushAttach;
     juce::WebSliderParameterAttachment outputTrimAttach;
+    juce::WebSliderParameterAttachment curveLowCutAttach;
+    juce::WebSliderParameterAttachment curveHighCutAttach;
+    juce::WebSliderParameterAttachment curveModeAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PoserEditor)
 };

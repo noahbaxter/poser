@@ -13,6 +13,9 @@ const sliderStates = {
     position_blend: Juce.getSliderState("position_blend"),
     master_push: Juce.getSliderState("master_push"),
     output_trim: Juce.getSliderState("output_trim"),
+    curve_low_cut: Juce.getSliderState("curve_low_cut"),
+    curve_high_cut: Juce.getSliderState("curve_high_cut"),
+    curve_mode: Juce.getSliderState("curve_mode"),
 };
 
 export function setParameterNormalized(id, normalizedValue) {
