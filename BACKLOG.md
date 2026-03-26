@@ -8,57 +8,93 @@
 - [x] **Decision gate: MODULAR** — all four layers (cab, speaker, mic, position) extract as coherent, distinct EQ shapes
 
 ### Key findings
-- All four variables contribute ~0.7-1.2 dB pairwise MAE at 1x (scales to 3.5-6 dB at 5x blend)
-- Position has the most variation (EDGE vs center = 3.6 dB), maps to a bright↔dark tilt knob
-- Mic extraction matches known physics (R121 rolloff, SM57 presence peak, C414 extended)
-- Cab components have identifiable features centered around 500-600Hz (cabinet resonance)
-- Speaker components are smallest but still coherent shapes with identifiable features
-- Mic curves for the plugin will come from manufacturer spec sheets (ground truth), not IR extraction
+- All four variables extract as coherent shapes from IR data
+- Mic curves from manufacturer measurements are dramatically better than IR-extracted residuals (15-22dB vs 1-2dB of character)
+- Cab/speaker/position extraction from IRs works well for the "flavor" use case
+- Position has the cleanest gradient (bright center ↔ dark edge)
 
-## Phase 1 — Core DSP
+## Phase 1 — Core DSP & Prototype (IN PROGRESS)
 
-- [ ] Define preset data format (freq/magnitude pairs, JSON or binary)
-- [ ] Implement curve-to-filter conversion (parametric EQ fitting — series of bell/shelf bands)
-- [ ] Implement blend knob scaling (scale magnitude before converting to coefficients)
-- [ ] Implement bipolar operation (negate dB values for negative blend)
-- [ ] Implement output trim / gain compensation
-- [ ] Wire up APVTS parameters: 4 selectors (mic, speaker, cab, position) + 4 blend knobs + output trim
+### Done
+- [x] FFT-based magnitude EQ using AudioFFT (cross-platform, handles scaling correctly)
+- [x] Sqrt-Hann WOLA with 50% overlap — verified perfect reconstruction via impulse test
+- [x] 4 component selectors (mic, cab, speaker, position) with per-component blend 0-100%
+- [x] Master push knob (-500% to +500%) scales entire composite curve
+- [x] Output trim with smoothing
+- [x] Auto-gain compensation (average magnitude → unity)
+- [x] Curve low/high cut (fade EQ curve to 0dB outside freq range, prevents bass buildup)
+- [x] Boost-only / cut-only / both mode (parameter exists, not yet in UI)
+- [x] All parameters bridged to WebView UI via JUCE relay system
+- [x] Knob component (`web/components/knob.js`) — reads initial state from C++ backend synchronously, listens for changes, no feedback loops
+- [x] Shift+click to disable individual components
+- [x] State save/recall via APVTS
+- [x] 15 DSP integration tests passing (passthrough, spectral, kick drum, preset switching)
+- [x] pluginval compliance passing
+- [x] Real mic curves from Audio Test Kitchen (Harman Labs): SM57, SM58, SM7B, U87, C414
 
-## Phase 2 — Mic Curves
+### In progress / needs work
+- [ ] Integrate real mic curves properly — currently normalized but need to verify they sound right at natural magnitude vs the IR-extracted cab/speaker/position curves
+- [ ] Get more mic data: MD421, R-121, RE20, D112, M88, e906 not in ATK database
+- [ ] RecordingHacks has 800 mic graphs as PNGs — could automate curve extraction via image processing
+- [ ] Curve mode UI (boost-only/cut-only toggle) — parameter exists but no UI control yet
 
-- [ ] Digitize proof-of-concept curves: SM57, MD421, D112 (most distinctive, best documented)
-- [ ] Source and digitize remaining ~15 mic curves from manufacturer spec sheets
-- [ ] Build preset loading system
-- [ ] Validate curves sound recognizable on real mix material
+## Phase 2 — More Mic Curves
 
-## Phase 3 — Cab/Speaker/Position Curves
+### Available sources
+- **Audio Test Kitchen** — 6 mics downloaded (SM57, SM58, SM7B, U87, C414). CSV data from Harman Labs measurements. Best quality but limited to condensers mostly.
+- **RecordingHacks** — 800 graphs for 600 mics, all retraced to common scale. PNG images at `/graphs2.php/{ID}`. Could automate extraction.
+- **Manufacturer PDFs** — Shure, Sennheiser, AKG, Neumann, Royer publish spec sheets. Manual WebPlotDigitizer process (~5 min each).
 
-- [ ] Extract final cab/speaker/position curves from IR collection
-- [ ] Determine optimal smoothing level for preset curves
-- [ ] Expand extraction to additional IR collections for more cab/speaker variety
-- [ ] Build preset sets for each component type
+### Target mics still needed
+- [ ] Sennheiser MD421 (mid scoop, the "broadcast dynamic")
+- [ ] Royer R-121 (ribbon rolloff, guitar cab favorite)
+- [ ] Electro-Voice RE20 (flat broadcast sound)
+- [ ] AKG D112 (kick drum mic, massive low-end hump)
+- [ ] Beyerdynamic M88 (tight, controlled)
+- [ ] Sennheiser e906 (guitar cab flat-profile)
+- [ ] Shure Beta 52A (kick drum, tighter than D112)
+- [ ] Neumann KM184 (small diaphragm overhead)
+- [ ] AKG C451 (classic overhead)
+- [ ] Coles 4038 (BBC ribbon)
+- [ ] AEA R84 (classic ribbon warmth)
 
-## Phase 4 — UI
+## Phase 3 — Expand Cab/Speaker/Position Data
 
-- [ ] Design 4-selector interface (mic, speaker, cab, position)
-- [ ] Per-component blend knobs (bipolar, wide range)
-- [ ] Output trim knob
-- [ ] WebView implementation
+- [ ] Expand extraction to additional IR collections
+- [ ] More cab types: open-back 1x12, 2x12, different 4x12 brands
+- [ ] More speaker types: Greenback, Blue, Jensen, Eminence
+- [ ] Determine if cab/speaker curves need normalization adjustment (currently ±6dB peak)
 
-## Phase 5 — Polish & Ship
+## Phase 4 — UI Polish
 
-- [ ] Full preset library with metadata and images
-- [ ] Testing (unit, integration, pluginval compliance)
-- [ ] Installer builds (macOS, Windows, Linux)
+- [ ] Curve mode toggle (boost-only / cut-only / both) in UI
+- [ ] Visual EQ curve display showing the composite response
+- [ ] Better selector UX for mics (icons/images?)
+- [ ] Preset system (save/recall combinations of all 4 selections + blend values)
+- [ ] Fix: window size for different display scales
+
+## Phase 5 — Production
+
+- [ ] Proper overlap-add (current simple FIFO has ~21ms latency, acceptable but could improve)
+- [ ] Windows build verification
+- [ ] Remove debug white noise generator from standalone
+- [ ] Update old integration tests (gain_db tests removed, need new regression baselines)
+- [ ] C++ unit tests for the FFT processing
+- [ ] Performance profiling
+- [ ] Installer builds (macOS pkg, Windows Inno Setup)
 
 ## Ideas / Future
 
 - Tilt/focus control (shifts curve center of gravity up/down in frequency)
 - Multi-curve blending — dual slot with crossfade ("40% SM7B + 60% RE20")
 - User-importable curves / community presets
-- Advanced mode: expose underlying EQ curve visualization
-- Expansion preset packs (pricing model TBD)
+- Advanced mode: expose underlying EQ curve visualization (educational)
+- Expansion preset packs
+- Automated RecordingHacks graph extraction for 600+ mics
 
 ## Known Issues
 
-(none yet)
+- Latency is ~21ms (1024 samples at 48kHz) — acceptable for mixing, not for tracking
+- Some curves (EDGE, certain speakers) cause bass buildup at high push — use low cut knob
+- Curve mode (boost/cut only) parameter exists but no UI yet
+- Old test_integration.py tests were removed (referenced nonexistent gain_db param)
