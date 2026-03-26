@@ -7,7 +7,7 @@
 #   installer   Build Release + create Inno Setup installer (.exe)
 #
 # Update these for your setup:
-PLUGIN_NAME="AudioPlugin"
+PLUGIN_NAME="Poser"
 WIN_DEST="/mnt/c/Users/$USER/Code/audioplugin"  # Update this path
 
 set -e

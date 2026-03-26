@@ -1,4 +1,4 @@
-# AudioPlugin
+# Poser
 
 JUCE audio plugin. VST3/AU on macOS, VST3 on Windows, VST3/LV2/CLAP on Linux.
 
@@ -24,7 +24,7 @@ JUCE audio plugin. VST3/AU on macOS, VST3 on Windows, VST3/LV2/CLAP on Linux.
 
 ## Adding Web Assets
 
-1. Add file path to `juce_add_binary_data(AudioPluginData ...)` in `CMakeLists.txt`
+1. Add file path to `juce_add_binary_data(PoserData ...)` in `CMakeLists.txt`
 2. Register in `PluginEditor.cpp` `getResource()` table
 3. BinaryData naming: hyphens removed, dots become underscores (`my-file.js` -> `myfile_js`)
 

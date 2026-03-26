@@ -3,11 +3,11 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
-class AudioPluginEditor : public juce::AudioProcessorEditor, private juce::Timer
+class PoserEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
-    explicit AudioPluginEditor(AudioPluginProcessor&);
-    ~AudioPluginEditor() override;
+    explicit PoserEditor(PoserProcessor&);
+    ~PoserEditor() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -17,7 +17,7 @@ private:
     std::optional<juce::WebBrowserComponent::Resource> getResource(const juce::String& url);
     void pushVersionOnce();
 
-    AudioPluginProcessor& audioProcessor;
+    PoserProcessor& audioProcessor;
     bool versionPushed = false;
     int timerTicks = 0;
 
@@ -30,5 +30,5 @@ private:
     // Parameter attachments (connect relays to APVTS parameters)
     juce::WebSliderParameterAttachment gainAttachment;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioPluginEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PoserEditor)
 };

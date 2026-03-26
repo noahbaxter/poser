@@ -61,14 +61,14 @@ for arg in "$@"; do
     esac
 done
 
-echo -e "${YELLOW}=== AudioPlugin Test Runner ===${NC}"
+echo -e "${YELLOW}=== Poser Test Runner ===${NC}"
 echo "Test type: $TEST_TYPE"
 
 # Ensure venv is set up
 ensure_venv
 
 # Check if plugin is built
-PLUGIN_PATH="$HOME/Library/Audio/Plug-Ins/VST3/AudioPlugin.vst3"
+PLUGIN_PATH="$HOME/Library/Audio/Plug-Ins/VST3/Poser.vst3"
 if [ ! -d "$PLUGIN_PATH" ]; then
     echo -e "${RED}Plugin not found at $PLUGIN_PATH${NC}"
     echo "Run ./scripts/build.sh first"

@@ -27,7 +27,7 @@ for arg in "$@"; do
     esac
 done
 
-echo -e "${YELLOW}=== Cleaning AudioPlugin ===${NC}"
+echo -e "${YELLOW}=== Cleaning Poser ===${NC}"
 
 # Clean main build directory
 if [ -d "$BUILD_DIR" ]; then

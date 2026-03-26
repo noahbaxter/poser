@@ -16,11 +16,11 @@ def get_platform_plugin_path():
         return Path(env_path)
 
     if sys.platform == "darwin":
-        return Path.home() / "Library/Audio/Plug-Ins/VST3/AudioPlugin.vst3"
+        return Path.home() / "Library/Audio/Plug-Ins/VST3/Poser.vst3"
     elif sys.platform == "win32":
-        return Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Common Files/VST3/AudioPlugin.vst3"
+        return Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Common Files/VST3/Poser.vst3"
     else:  # Linux
-        return Path.home() / ".vst3/AudioPlugin.vst3"
+        return Path.home() / ".vst3/Poser.vst3"
 
 
 def _skip_pedalboard_on_windows():

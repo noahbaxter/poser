@@ -34,7 +34,7 @@ for arg in "$@"; do
 done
 
 # Kill any running instance first (prevents WebView caching issues)
-pkill -f "Audio Plugin.app" 2>/dev/null || true
+pkill -f "Poser EQ.app" 2>/dev/null || true
 sleep 0.5
 
 # Configure CMake if needed (or reconfigure if paths/version changed)

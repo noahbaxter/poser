@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/_common.sh"
 
 CMAKE_BUILD_DIR="$PROJECT_ROOT/build-standalone"
 APP_PATH="$CMAKE_BUILD_DIR/${PLUGIN_NAME}_artefacts/Debug/Standalone/Audio Plugin.app"
-APP_NAME="Audio Plugin"
+APP_NAME="Poser EQ"
 
 # Check for fswatch
 if ! command -v fswatch &> /dev/null; then

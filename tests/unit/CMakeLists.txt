@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(audioplugin_unit_tests LANGUAGES C CXX)
+project(poser_unit_tests LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,7 +46,7 @@ target_compile_definitions(unit_tests PRIVATE
     JUCE_STANDALONE_APPLICATION=1
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
-    JucePlugin_Name="AudioPlugin"
+    JucePlugin_Name="Poser"
     JucePlugin_Build_VST3=0
     JucePlugin_Build_AU=0
 )

@@ -1,6 +1,6 @@
 #include "PluginProcessor.h"
 
-AudioPluginProcessor::AudioPluginProcessor()
+PoserProcessor::PoserProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
     : AudioProcessor(BusesProperties()
 #if ! JucePlugin_IsMidiEffect
@@ -15,11 +15,11 @@ AudioPluginProcessor::AudioPluginProcessor()
 {
 }
 
-AudioPluginProcessor::~AudioPluginProcessor()
+PoserProcessor::~PoserProcessor()
 {
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
@@ -33,12 +33,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginProcessor::create
     return {params.begin(), params.end()};
 }
 
-void AudioPluginProcessor::enableSmoothing(const juce::String& paramId, double smoothingTimeSeconds)
+void PoserProcessor::enableSmoothing(const juce::String& paramId, double smoothingTimeSeconds)
 {
     smoothers[paramId].reset(currentSampleRate, smoothingTimeSeconds);
 }
 
-float AudioPluginProcessor::getSmoothedParam(const juce::String& paramId)
+float PoserProcessor::getSmoothedParam(const juce::String& paramId)
 {
     auto* param = apvts.getRawParameterValue(paramId);
     if (param == nullptr)
@@ -49,12 +49,12 @@ float AudioPluginProcessor::getSmoothedParam(const juce::String& paramId)
     return smoother.getNextValue();
 }
 
-const juce::String AudioPluginProcessor::getName() const
+const juce::String PoserProcessor::getName() const
 {
     return JucePlugin_Name;
 }
 
-bool AudioPluginProcessor::acceptsMidi() const
+bool PoserProcessor::acceptsMidi() const
 {
 #if JucePlugin_WantsMidiInput
     return true;
@@ -63,7 +63,7 @@ bool AudioPluginProcessor::acceptsMidi() const
 #endif
 }
 
-bool AudioPluginProcessor::producesMidi() const
+bool PoserProcessor::producesMidi() const
 {
 #if JucePlugin_ProducesMidiOutput
     return true;
@@ -72,7 +72,7 @@ bool AudioPluginProcessor::producesMidi() const
 #endif
 }
 
-bool AudioPluginProcessor::isMidiEffect() const
+bool PoserProcessor::isMidiEffect() const
 {
 #if JucePlugin_IsMidiEffect
     return true;
@@ -81,38 +81,38 @@ bool AudioPluginProcessor::isMidiEffect() const
 #endif
 }
 
-double AudioPluginProcessor::getTailLengthSeconds() const
+double PoserProcessor::getTailLengthSeconds() const
 {
     return 0.0;
 }
 
-int AudioPluginProcessor::getNumPrograms()
+int PoserProcessor::getNumPrograms()
 {
     return 1;
 }
 
-int AudioPluginProcessor::getCurrentProgram()
+int PoserProcessor::getCurrentProgram()
 {
     return 0;
 }
 
-void AudioPluginProcessor::setCurrentProgram(int index)
+void PoserProcessor::setCurrentProgram(int index)
 {
     juce::ignoreUnused(index);
 }
 
-const juce::String AudioPluginProcessor::getProgramName(int index)
+const juce::String PoserProcessor::getProgramName(int index)
 {
     juce::ignoreUnused(index);
     return {};
 }
 
-void AudioPluginProcessor::changeProgramName(int index, const juce::String& newName)
+void PoserProcessor::changeProgramName(int index, const juce::String& newName)
 {
     juce::ignoreUnused(index, newName);
 }
 
-void AudioPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+void PoserProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     juce::ignoreUnused(samplesPerBlock);
     currentSampleRate = sampleRate;
@@ -121,12 +121,12 @@ void AudioPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     enableSmoothing("gain", 0.02); // 20ms smoothing
 }
 
-void AudioPluginProcessor::releaseResources()
+void PoserProcessor::releaseResources()
 {
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
-bool AudioPluginProcessor::isBusesLayoutSupported(const juce::AudioProcessor::BusesLayout& layouts) const
+bool PoserProcessor::isBusesLayoutSupported(const juce::AudioProcessor::BusesLayout& layouts) const
 {
 #if JucePlugin_IsMidiEffect
     juce::ignoreUnused(layouts);
@@ -146,7 +146,7 @@ bool AudioPluginProcessor::isBusesLayoutSupported(const juce::AudioProcessor::Bu
 }
 #endif
 
-void AudioPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ignoreUnused(midiMessages);
     juce::ScopedNoDenormals noDenormals;
@@ -182,7 +182,7 @@ void AudioPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     }
 }
 
-bool AudioPluginProcessor::hasEditor() const
+bool PoserProcessor::hasEditor() const
 {
     return true;
 }
@@ -190,14 +190,14 @@ bool AudioPluginProcessor::hasEditor() const
 // createEditor() lives in PluginEditor.cpp to avoid pulling WebView
 // dependencies into headless builds (unit tests with JUCE_WEB_BROWSER=0)
 
-void AudioPluginProcessor::getStateInformation(juce::MemoryBlock& destData)
+void PoserProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
 
-void AudioPluginProcessor::setStateInformation(const void* data, int sizeInBytes)
+void PoserProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml != nullptr && xml->hasTagName(apvts.state.getType()))
@@ -208,5 +208,5 @@ void AudioPluginProcessor::setStateInformation(const void* data, int sizeInBytes
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new AudioPluginProcessor();
+    return new PoserProcessor();
 }

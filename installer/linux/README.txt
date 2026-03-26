@@ -1,4 +1,4 @@
-Audio Plugin - Linux Installation
+Poser EQ - Linux Installation
 ==================================
 
 REQUIREMENTS
@@ -19,12 +19,12 @@ INSTALLATION
 ------------
 Copy the plugin folders to your user plugin directories:
 
-  VST3:  ~/.vst3/AudioPlugin.vst3
-  LV2:   ~/.lv2/AudioPlugin.lv2
-  CLAP:  ~/.clap/AudioPlugin.clap
+  VST3:  ~/.vst3/Poser.vst3
+  LV2:   ~/.lv2/Poser.lv2
+  CLAP:  ~/.clap/Poser.clap
 
 Or system-wide (requires sudo):
 
-  VST3:  /usr/lib/vst3/AudioPlugin.vst3
-  LV2:   /usr/lib/lv2/AudioPlugin.lv2
-  CLAP:  /usr/lib/clap/AudioPlugin.clap
+  VST3:  /usr/lib/vst3/Poser.vst3
+  LV2:   /usr/lib/lv2/Poser.lv2
+  CLAP:  /usr/lib/clap/Poser.clap

@@ -1,4 +1,4 @@
-name: Build AudioPlugin
+name: Build Poser
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
       - name: Verify VST3 bundle
         shell: pwsh
         run: |
-          $vst3Path = "build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3"
+          $vst3Path = "build/Poser_artefacts/Release/VST3/Audio Plugin.vst3"
           if (-not (Test-Path $vst3Path)) {
             Write-Error "VST3 bundle not found at $vst3Path"
             Get-ChildItem -Recurse build -Filter "*.vst3" | ForEach-Object { Write-Host $_.FullName }
@@ -41,8 +41,8 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AudioPlugin-VST3-Windows-x64
-          path: build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3
+          name: Poser-VST3-Windows-x64
+          path: build/Poser_artefacts/Release/VST3/Audio Plugin.vst3
           retention-days: 30
 
   build-macos:
@@ -72,7 +72,7 @@ jobs:
       - name: Verify builds
         run: |
           echo "=== Verifying VST3 bundle ==="
-          VST3_PATH="build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3"
+          VST3_PATH="build/Poser_artefacts/Release/VST3/Audio Plugin.vst3"
           if [ ! -d "$VST3_PATH" ]; then
             echo "[ERROR] VST3 not found at $VST3_PATH"
             find build -name "*.vst3" -type d
@@ -86,7 +86,7 @@ jobs:
           fi
 
           echo "=== Verifying AU bundle ==="
-          AU_PATH="build/AudioPlugin_artefacts/Release/AU/Audio Plugin.component"
+          AU_PATH="build/Poser_artefacts/Release/AU/Audio Plugin.component"
           if [ ! -d "$AU_PATH" ]; then
             echo "[ERROR] AU not found at $AU_PATH"
             exit 1
@@ -96,10 +96,10 @@ jobs:
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AudioPlugin-macOS
+          name: Poser-macOS
           path: |
-            build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3
-            build/AudioPlugin_artefacts/Release/AU/Audio Plugin.component
+            build/Poser_artefacts/Release/VST3/Audio Plugin.vst3
+            build/Poser_artefacts/Release/AU/Audio Plugin.component
           retention-days: 30
 
   build-linux:
@@ -140,7 +140,7 @@ jobs:
       - name: Verify Linux plugin bundles
         run: |
           echo "=== Checking VST3 bundle ==="
-          VST3_PATH="build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3"
+          VST3_PATH="build/Poser_artefacts/Release/VST3/Audio Plugin.vst3"
           if [ -d "$VST3_PATH" ]; then
             echo "[OK] VST3 bundle exists"
             ls -la "$VST3_PATH/Contents/x86_64-linux/" || true
@@ -149,7 +149,7 @@ jobs:
           fi
 
           echo "=== Checking LV2 bundle ==="
-          LV2_PATH="build/AudioPlugin_artefacts/Release/LV2/Audio Plugin.lv2"
+          LV2_PATH="build/Poser_artefacts/Release/LV2/Audio Plugin.lv2"
           if [ -d "$LV2_PATH" ]; then
             echo "[OK] LV2 bundle exists"
             ls -la "$LV2_PATH/"
@@ -158,7 +158,7 @@ jobs:
           fi
 
           echo "=== Checking CLAP bundle ==="
-          CLAP_PATH="build/AudioPlugin_artefacts/Release/CLAP/Audio Plugin.clap"
+          CLAP_PATH="build/Poser_artefacts/Release/CLAP/Audio Plugin.clap"
           if [ -f "$CLAP_PATH" ]; then
             echo "[OK] CLAP plugin exists"
             ls -la "$CLAP_PATH"
@@ -176,11 +176,11 @@ jobs:
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AudioPlugin-Linux-x64
+          name: Poser-Linux-x64
           path: |
-            build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3
-            build/AudioPlugin_artefacts/Release/LV2/Audio Plugin.lv2
-            build/AudioPlugin_artefacts/Release/CLAP/Audio Plugin.clap
+            build/Poser_artefacts/Release/VST3/Audio Plugin.vst3
+            build/Poser_artefacts/Release/LV2/Audio Plugin.lv2
+            build/Poser_artefacts/Release/CLAP/Audio Plugin.clap
           retention-days: 30
 
   test-macos:
@@ -197,13 +197,13 @@ jobs:
       - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-macOS
+          name: Poser-macOS
           path: ./plugin/
 
       - name: Install plugin to expected location
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/VST3
-          cp -R "./plugin/VST3/Audio Plugin.vst3" ~/Library/Audio/Plug-Ins/VST3/AudioPlugin.vst3
+          cp -R "./plugin/VST3/Audio Plugin.vst3" ~/Library/Audio/Plug-Ins/VST3/Poser.vst3
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -246,7 +246,7 @@ jobs:
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-VST3-Windows-x64
+          name: Poser-VST3-Windows-x64
           path: ./plugin/
 
       - name: Install plugin to expected location
@@ -258,15 +258,15 @@ jobs:
 
           if (Test-Path "./plugin/Audio Plugin.vst3") {
             Write-Host "Found Audio Plugin.vst3 folder in artifact"
-            Copy-Item -Recurse -Force "./plugin/Audio Plugin.vst3" "$destDir/AudioPlugin.vst3"
+            Copy-Item -Recurse -Force "./plugin/Audio Plugin.vst3" "$destDir/Poser.vst3"
           } else {
             Write-Host "Artifact contains raw Contents - wrapping in bundle folder"
-            New-Item -ItemType Directory -Path "$destDir/AudioPlugin.vst3" -Force
-            Copy-Item -Recurse -Force "./plugin/*" "$destDir/AudioPlugin.vst3/"
+            New-Item -ItemType Directory -Path "$destDir/Poser.vst3" -Force
+            Copy-Item -Recurse -Force "./plugin/*" "$destDir/Poser.vst3/"
           }
 
           Write-Host "=== Installed plugin structure ==="
-          Get-ChildItem "$destDir/AudioPlugin.vst3" -Recurse | Select-Object FullName
+          Get-ChildItem "$destDir/Poser.vst3" -Recurse | Select-Object FullName
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -286,7 +286,7 @@ jobs:
         shell: pwsh
         run: |
           $pluginval = Get-ChildItem C:\pluginval -Filter "pluginval.exe" -Recurse | Select-Object -First 1
-          $vst3 = "C:\Program Files\Common Files\VST3\AudioPlugin.vst3"
+          $vst3 = "C:\Program Files\Common Files\VST3\Poser.vst3"
           Write-Host "Running pluginval on: $vst3"
           & $pluginval.FullName --validate "$vst3" --strictness-level 5 --verbose
 
@@ -315,28 +315,28 @@ jobs:
       - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-macOS
+          name: Poser-macOS
           path: ./artifacts/
 
       - name: Prepare build structure
         run: |
-          mkdir -p build/AudioPlugin_artefacts/Release/VST3
-          mkdir -p build/AudioPlugin_artefacts/Release/AU
+          mkdir -p build/Poser_artefacts/Release/VST3
+          mkdir -p build/Poser_artefacts/Release/AU
 
           if [ -d "./artifacts/VST3/Audio Plugin.vst3" ]; then
-            cp -R "./artifacts/VST3/Audio Plugin.vst3" build/AudioPlugin_artefacts/Release/VST3/AudioPlugin.vst3
+            cp -R "./artifacts/VST3/Audio Plugin.vst3" build/Poser_artefacts/Release/VST3/Poser.vst3
           elif [ -d "./artifacts/Audio Plugin.vst3" ]; then
-            cp -R "./artifacts/Audio Plugin.vst3" build/AudioPlugin_artefacts/Release/VST3/AudioPlugin.vst3
+            cp -R "./artifacts/Audio Plugin.vst3" build/Poser_artefacts/Release/VST3/Poser.vst3
           fi
 
           if [ -d "./artifacts/AU/Audio Plugin.component" ]; then
-            cp -R "./artifacts/AU/Audio Plugin.component" build/AudioPlugin_artefacts/Release/AU/AudioPlugin.component
+            cp -R "./artifacts/AU/Audio Plugin.component" build/Poser_artefacts/Release/AU/Poser.component
           elif [ -d "./artifacts/Audio Plugin.component" ]; then
-            cp -R "./artifacts/Audio Plugin.component" build/AudioPlugin_artefacts/Release/AU/AudioPlugin.component
+            cp -R "./artifacts/Audio Plugin.component" build/Poser_artefacts/Release/AU/Poser.component
           fi
 
           echo "=== Build structure ==="
-          find build/AudioPlugin_artefacts -type d
+          find build/Poser_artefacts -type d
 
       - name: Get version
         id: version
@@ -437,27 +437,27 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           PKG_ROOT="build/pkg-root"
           PKG_OUT="build/installer"
-          PLUGIN_NAME="AudioPlugin"
+          PLUGIN_NAME="Poser"
 
           mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/VST3"
           mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/Components"
           mkdir -p "$PKG_OUT"
 
-          cp -R build/AudioPlugin_artefacts/Release/VST3/AudioPlugin.vst3 "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/"
-          cp -R build/AudioPlugin_artefacts/Release/AU/AudioPlugin.component "$PKG_ROOT/Library/Audio/Plug-Ins/Components/"
+          cp -R build/Poser_artefacts/Release/VST3/Poser.vst3 "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/"
+          cp -R build/Poser_artefacts/Release/AU/Poser.component "$PKG_ROOT/Library/Audio/Plug-Ins/Components/"
 
           echo "=== Signing VST3 ==="
           codesign --force --deep --sign "$APP_IDENTITY" \
             --options runtime --timestamp \
-            "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/AudioPlugin.vst3"
+            "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/Poser.vst3"
 
           echo "=== Signing AU ==="
           codesign --force --deep --sign "$APP_IDENTITY" \
             --options runtime --timestamp \
-            "$PKG_ROOT/Library/Audio/Plug-Ins/Components/AudioPlugin.component"
+            "$PKG_ROOT/Library/Audio/Plug-Ins/Components/Poser.component"
 
-          codesign --verify --deep --strict "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/AudioPlugin.vst3"
-          codesign --verify --deep --strict "$PKG_ROOT/Library/Audio/Plug-Ins/Components/AudioPlugin.component"
+          codesign --verify --deep --strict "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/Poser.vst3"
+          codesign --verify --deep --strict "$PKG_ROOT/Library/Audio/Plug-Ins/Components/Poser.component"
 
           echo "=== Building package ==="
           pkgbuild \
@@ -480,7 +480,7 @@ jobs:
         if: steps.signing.outputs.enabled == 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          PKG="build/installer/AudioPlugin-${VERSION}-macOS.pkg"
+          PKG="build/installer/Poser-${VERSION}-macOS.pkg"
 
           echo "=== Submitting for notarization ==="
           xcrun notarytool submit "$PKG" \
@@ -497,7 +497,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           PKG_ROOT="build/pkg-root"
           PKG_OUT="build/installer"
-          PLUGIN_NAME="AudioPlugin"
+          PLUGIN_NAME="Poser"
 
           echo ""
           echo "========================================================================"
@@ -509,13 +509,13 @@ jobs:
           mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/Components"
           mkdir -p "$PKG_OUT"
 
-          cp -R build/AudioPlugin_artefacts/Release/VST3/AudioPlugin.vst3 "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/"
-          cp -R build/AudioPlugin_artefacts/Release/AU/AudioPlugin.component "$PKG_ROOT/Library/Audio/Plug-Ins/Components/"
+          cp -R build/Poser_artefacts/Release/VST3/Poser.vst3 "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/"
+          cp -R build/Poser_artefacts/Release/AU/Poser.component "$PKG_ROOT/Library/Audio/Plug-Ins/Components/"
 
           echo "=== Building UNSIGNED package ==="
           pkgbuild \
             --root "$PKG_ROOT" \
-            --identifier "com.example.audioplugin.pkg" \
+            --identifier "com.dichoticstudios.poser.pkg" \
             --version "$VERSION" \
             --install-location "/" \
             "$PKG_OUT/$PLUGIN_NAME-${VERSION}-macOS-UNSIGNED.pkg"
@@ -546,8 +546,8 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: AudioPlugin-Installer-macOS
-          path: build/installer/AudioPlugin-*.pkg
+          name: Poser-Installer-macOS
+          path: build/installer/Poser-*.pkg
           retention-days: 30
 
   # Package Windows installer
@@ -563,23 +563,23 @@ jobs:
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-VST3-Windows-x64
+          name: Poser-VST3-Windows-x64
           path: ./artifacts/
 
       - name: Prepare build structure
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path "build/AudioPlugin_artefacts/Release/VST3" -Force
+          New-Item -ItemType Directory -Path "build/Poser_artefacts/Release/VST3" -Force
 
           if (Test-Path "./artifacts/Audio Plugin.vst3") {
-            Copy-Item -Recurse "./artifacts/Audio Plugin.vst3" "build/AudioPlugin_artefacts/Release/VST3/"
+            Copy-Item -Recurse "./artifacts/Audio Plugin.vst3" "build/Poser_artefacts/Release/VST3/"
           } else {
-            New-Item -ItemType Directory -Path "build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3" -Force
-            Copy-Item -Recurse "./artifacts/*" "build/AudioPlugin_artefacts/Release/VST3/Audio Plugin.vst3/"
+            New-Item -ItemType Directory -Path "build/Poser_artefacts/Release/VST3/Audio Plugin.vst3" -Force
+            Copy-Item -Recurse "./artifacts/*" "build/Poser_artefacts/Release/VST3/Audio Plugin.vst3/"
           }
 
           Write-Host "=== Build structure ==="
-          Get-ChildItem -Recurse "build/AudioPlugin_artefacts/Release/VST3" | Select-Object FullName
+          Get-ChildItem -Recurse "build/Poser_artefacts/Release/VST3" | Select-Object FullName
 
       - name: Get version
         id: version
@@ -605,8 +605,8 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: AudioPlugin-Installer-Windows
-          path: installer/windows/AudioPlugin-*.exe
+          name: Poser-Installer-Windows
+          path: installer/windows/Poser-*.exe
           retention-days: 30
 
   # Check if release is needed
@@ -664,26 +664,26 @@ jobs:
       - name: Download macOS installer
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-Installer-macOS
+          name: Poser-Installer-macOS
           path: ./installers/
 
       - name: Download Windows installer
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-Installer-Windows
+          name: Poser-Installer-Windows
           path: ./installers/
 
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-Linux-x64
+          name: Poser-Linux-x64
           path: ./linux-plugins/
 
       - name: Create Linux archive
         run: |
           VERSION="${{ needs.check-release.outputs.version }}"
           cd linux-plugins
-          zip -r "../installers/AudioPlugin-${VERSION}-Linux-x64.zip" .
+          zip -r "../installers/Poser-${VERSION}-Linux-x64.zip" .
 
       - name: List installers
         run: ls -la installers/
@@ -692,7 +692,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ needs.check-release.outputs.version }}
-          name: AudioPlugin v${{ needs.check-release.outputs.version }}
+          name: Poser v${{ needs.check-release.outputs.version }}
           draft: true
           body_path: /tmp/release_notes.txt
           files: |
@@ -743,31 +743,31 @@ jobs:
       - name: Download macOS installer
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-Installer-macOS
+          name: Poser-Installer-macOS
           path: ./installers/
 
       - name: Download Windows installer
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-Installer-Windows
+          name: Poser-Installer-Windows
           path: ./installers/
 
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
-          name: AudioPlugin-Linux-x64
+          name: Poser-Linux-x64
           path: ./linux-plugins/
 
       - name: Create Linux archive
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           cd linux-plugins
-          zip -r "../installers/AudioPlugin-${VERSION}-Linux-x64.zip" .
+          zip -r "../installers/Poser-${VERSION}-Linux-x64.zip" .
 
       - name: Create release
         uses: softprops/action-gh-release@v1
         with:
-          name: AudioPlugin v${{ steps.version.outputs.version }}
+          name: Poser v${{ steps.version.outputs.version }}
           draft: true
           body_path: /tmp/release_notes.txt
           files: |

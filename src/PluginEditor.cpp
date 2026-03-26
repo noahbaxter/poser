@@ -2,12 +2,12 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
 
-juce::AudioProcessorEditor* AudioPluginProcessor::createEditor()
+juce::AudioProcessorEditor* PoserProcessor::createEditor()
 {
-    return new AudioPluginEditor(*this);
+    return new PoserEditor(*this);
 }
 
-AudioPluginEditor::AudioPluginEditor(AudioPluginProcessor& p)
+PoserEditor::PoserEditor(PoserProcessor& p)
     : AudioProcessorEditor(&p),
       audioProcessor(p),
       gainRelay{"gain"},
@@ -36,7 +36,7 @@ AudioPluginEditor::AudioPluginEditor(AudioPluginProcessor& p)
     setSize(500, 400);
 
     // Delay navigation for WebView2 async initialization on Windows
-    juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<AudioPluginEditor>(this)]() {
+    juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<PoserEditor>(this)]() {
         if (safeThis != nullptr)
             safeThis->webView.goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
     });
@@ -44,28 +44,28 @@ AudioPluginEditor::AudioPluginEditor(AudioPluginProcessor& p)
     startTimerHz(60);
 }
 
-AudioPluginEditor::~AudioPluginEditor()
+PoserEditor::~PoserEditor()
 {
     stopTimer();
 }
 
-void AudioPluginEditor::paint(juce::Graphics& g)
+void PoserEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff1e1e1e));
 }
 
-void AudioPluginEditor::resized()
+void PoserEditor::resized()
 {
     webView.setBounds(getLocalBounds());
 }
 
-void AudioPluginEditor::timerCallback()
+void PoserEditor::timerCallback()
 {
     ++timerTicks;
     pushVersionOnce();
 }
 
-void AudioPluginEditor::pushVersionOnce()
+void PoserEditor::pushVersionOnce()
 {
     if (versionPushed) return;
 
@@ -80,7 +80,7 @@ void AudioPluginEditor::pushVersionOnce()
         versionPushed = true;
 }
 
-std::optional<juce::WebBrowserComponent::Resource> AudioPluginEditor::getResource(const juce::String& url)
+std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getResource(const juce::String& url)
 {
     juce::String urlToRetrieve;
 

@@ -40,15 +40,15 @@ if(MSVC)
     set(JUCE_WEBVIEW2_PACKAGE_LOCATION "${CMAKE_SOURCE_DIR}/packages" CACHE PATH "" FORCE)
 endif()
 
-juce_add_plugin(AudioPlugin
+juce_add_plugin(Poser
     VERSION ${PROJECT_VERSION}
-    COMPANY_NAME ""
-    BUNDLE_ID "com.example.audioplugin"
-    PLUGIN_MANUFACTURER_CODE Manu
-    PLUGIN_CODE AuPl
+    COMPANY_NAME "Dichotic Studios"
+    BUNDLE_ID "com.dichoticstudios.poser"
+    PLUGIN_MANUFACTURER_CODE Dcht
+    PLUGIN_CODE Posr
     FORMATS VST3 AU LV2 Standalone
-    PRODUCT_NAME "Audio Plugin"
-    PLUGIN_DESC "An audio plugin"
+    PRODUCT_NAME "Poser EQ"
+    PLUGIN_DESC "A JUCE audio plugin"
 
     # WebView requirements
     NEEDS_WEB_BROWSER TRUE
@@ -62,26 +62,26 @@ juce_add_plugin(AudioPlugin
     COPY_PLUGIN_AFTER_BUILD FALSE
 
     VST3_CATEGORIES Fx
-    LV2URI https://example.com/plugins/audioplugin
+    LV2URI https://dichoticstudios/plugins/poser
 )
 
 # CLAP plugin wrapper
 clap_juce_extensions_plugin(
-    TARGET AudioPlugin
-    CLAP_ID "com.example.audioplugin"
+    TARGET Poser
+    CLAP_ID "com.dichoticstudios.poser"
     CLAP_FEATURES audio-effect utility
 )
 
-juce_generate_juce_header(AudioPlugin)
+juce_generate_juce_header(Poser)
 
-target_sources(AudioPlugin
+target_sources(Poser
     PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
 )
 
 # Binary data for web files
-juce_add_binary_data(AudioPluginData
+juce_add_binary_data(PoserData
     NAMESPACE BinaryData
     SOURCES
         web/index.html
@@ -92,7 +92,7 @@ juce_add_binary_data(AudioPluginData
         web/lib/juce/check_native_interop.js
 )
 
-target_compile_definitions(AudioPlugin
+target_compile_definitions(Poser
     PUBLIC
         JUCE_STRICT_REFCOUNTEDPOINTER=1
         JUCE_VST3_CAN_REPLACE_VST2=0
@@ -103,9 +103,9 @@ target_compile_definitions(AudioPlugin
         DONT_SET_USING_JUCE_NAMESPACE=1
 )
 
-target_link_libraries(AudioPlugin
+target_link_libraries(Poser
     PRIVATE
-        AudioPluginData
+        PoserData
         juce::juce_audio_basics
         juce::juce_audio_devices
         juce::juce_audio_formats

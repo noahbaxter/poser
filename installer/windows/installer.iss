@@ -9,11 +9,11 @@
 #endif
 
 #ifndef SOURCE_DIR
-  #define SOURCE_DIR "..\..\build\AudioPlugin_artefacts\Release"
+  #define SOURCE_DIR "..\..\build\Poser_artefacts\Release"
 #endif
 
 ; Update these for your plugin:
-#define PLUGIN_NAME "AudioPlugin"
+#define PLUGIN_NAME "Poser"
 #define PUBLISHER "Your Company"
 
 [Setup]
@@ -47,7 +47,7 @@ Type: filesandordirs; Name: "{app}\{#PLUGIN_NAME}.vst3"
 
 [Files]
 ; Install just the VST3 DLL (single file, not bundle)
-Source: "{#SOURCE_DIR}\VST3\Audio Plugin.vst3\Contents\x86_64-win\Audio Plugin.vst3"; DestDir: "{app}"; DestName: "{#PLUGIN_NAME}.vst3"
+Source: "{#SOURCE_DIR}\VST3\Poser EQ.vst3\Contents\x86_64-win\Poser EQ.vst3"; DestDir: "{app}"; DestName: "{#PLUGIN_NAME}.vst3"
 
 [Messages]
 SetupWindowTitle={#PLUGIN_NAME} {#VERSION}

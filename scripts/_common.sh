@@ -16,7 +16,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 BUILD_DIR="$PROJECT_ROOT/build"
 TESTS_DIR="$PROJECT_ROOT/tests"
 VENV_DIR="$PROJECT_ROOT/.venv"
-PLUGIN_NAME="AudioPlugin"
+PLUGIN_NAME="Poser"
 
 # Check for stale CMake cache (e.g., after submodule update)
 check_stale_cache() {

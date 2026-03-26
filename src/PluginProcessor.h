@@ -3,11 +3,11 @@
 #include <JuceHeader.h>
 #include <unordered_map>
 
-class AudioPluginProcessor : public juce::AudioProcessor
+class PoserProcessor : public juce::AudioProcessor
 {
 public:
-    AudioPluginProcessor();
-    ~AudioPluginProcessor() override;
+    PoserProcessor();
+    ~PoserProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -52,5 +52,5 @@ private:
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioPluginProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PoserProcessor)
 };

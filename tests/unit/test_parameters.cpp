@@ -3,11 +3,11 @@
 #include "PluginProcessor.h"
 
 // Stub — PluginEditor.cpp is excluded from test builds (pulls in WebView)
-juce::AudioProcessorEditor* AudioPluginProcessor::createEditor() { return nullptr; }
+juce::AudioProcessorEditor* PoserProcessor::createEditor() { return nullptr; }
 
 TEST_CASE("Parameter creation and ranges", "[parameters]")
 {
-    AudioPluginProcessor processor;
+    PoserProcessor processor;
     auto& apvts = processor.getAPVTS();
 
     auto* gainParam = apvts.getParameter("gain");
@@ -29,7 +29,7 @@ TEST_CASE("State save/load roundtrip", "[state]")
 
     SECTION("save state")
     {
-        AudioPluginProcessor processor;
+        PoserProcessor processor;
         auto* gainParam = processor.getAPVTS().getParameter("gain");
         gainParam->setValueNotifyingHost(
             gainParam->getNormalisableRange().convertTo0to1(testGainValue));
@@ -40,7 +40,7 @@ TEST_CASE("State save/load roundtrip", "[state]")
     {
         // Save first
         {
-            AudioPluginProcessor processor;
+            PoserProcessor processor;
             auto* gainParam = processor.getAPVTS().getParameter("gain");
             gainParam->setValueNotifyingHost(
                 gainParam->getNormalisableRange().convertTo0to1(testGainValue));
@@ -48,7 +48,7 @@ TEST_CASE("State save/load roundtrip", "[state]")
         }
 
         // Load and verify
-        AudioPluginProcessor processor;
+        PoserProcessor processor;
         processor.setStateInformation(stateData.getData(),
                                       static_cast<int>(stateData.getSize()));
 

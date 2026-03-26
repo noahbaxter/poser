@@ -11,8 +11,8 @@
 #   APPLE_APP_PASSWORD - app-specific password
 #
 # Update these for your plugin:
-PLUGIN_NAME="AudioPlugin"
-BUNDLE_ID="com.example.audioplugin"
+PLUGIN_NAME="Poser"
+BUNDLE_ID="com.dichoticstudios.poser"
 # Update these with your Apple Developer credentials:
 APP_IDENTITY="Developer ID Application: Your Name (TEAM_ID)"
 PKG_IDENTITY="Developer ID Installer: Your Name (TEAM_ID)"

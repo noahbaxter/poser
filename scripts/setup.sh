@@ -27,7 +27,7 @@ for arg in "$@"; do
     esac
 done
 
-echo -e "${YELLOW}=== AudioPlugin Environment Setup ===${NC}"
+echo -e "${YELLOW}=== Poser Environment Setup ===${NC}"
 
 # Initialize JUCE submodule
 echo -e "\n${BLUE}Checking JUCE submodule...${NC}"
