@@ -91,15 +91,20 @@ def main():
         items = components[comp_type]
         sorted_names = sorted(items.keys())
 
-        # Individual curve arrays (normalized to TARGET_PEAK_DB)
+        # Individual curve arrays
+        # Mics use their natural magnitude (real measured data)
+        # Cab/speaker/position are normalized to TARGET_PEAK_DB (extracted residuals)
         for name in sorted_names:
             ident = sanitize_ident(name)
             var_name = f"k{singular}_{ident}"
             mag = items[name]["magnitude_db"]
             raw_peak = max(abs(v) for v in mag)
-            mag = normalize_curve(mag)
-            norm_peak = max(abs(v) for v in mag)
-            print(f"  {name:12s} raw peak {raw_peak:5.2f}dB → normalized {norm_peak:5.2f}dB")
+            if comp_type != "mic":
+                mag = normalize_curve(mag)
+                norm_peak = max(abs(v) for v in mag)
+                print(f"  {name:12s} raw peak {raw_peak:5.2f}dB → normalized {norm_peak:5.2f}dB")
+            else:
+                print(f"  {name:12s} raw peak {raw_peak:5.2f}dB (natural, no normalization)")
             out.append(f"static constexpr float {var_name}[] = {{")
             out.append(format_float_array(mag))
             out.append("};")

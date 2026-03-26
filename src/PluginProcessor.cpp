@@ -23,7 +23,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"mic_select", 1}, "Mic Select", 0, 5, 5));
+        juce::ParameterID{"mic_select", 1}, "Mic Select", 0, 4, 1));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"cab_select", 1}, "Cab Select", 0, 3, 2));
     params.push_back(std::make_unique<juce::AudioParameterInt>(

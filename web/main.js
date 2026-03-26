@@ -13,7 +13,7 @@ function normToSelect(norm, max) { return Math.round(norm * max); }
 
 // ---- Component definitions ----
 const COMPONENTS = {
-    mic:      { label: 'MIC',  options: ['C414', 'M160', 'MD421', 'MD441', 'R121', 'SM57'] },
+    mic:      { label: 'MIC',  options: ['C414', 'SM57', 'SM58', 'SM7B', 'U87'] },
     cab:      { label: 'CAB',  options: ['DZL', 'MAR', 'MES', 'ORN'] },
     speaker:  { label: 'SPK',  options: ['12K', 'EDVH', 'G80', 'GOV', 'H30', 'M25', 'T75', 'V30'] },
     position: { label: 'POS',  options: ['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', 'EDGE', 'FRED'] },
