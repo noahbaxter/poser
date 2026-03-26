@@ -11,7 +11,7 @@ const sliderStates = {
     cab_blend: Juce.getSliderState("cab_blend"),
     speaker_blend: Juce.getSliderState("speaker_blend"),
     position_blend: Juce.getSliderState("position_blend"),
-    dry_wet: Juce.getSliderState("dry_wet"),
+    master_push: Juce.getSliderState("master_push"),
     output_trim: Juce.getSliderState("output_trim"),
 };
 

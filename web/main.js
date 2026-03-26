@@ -8,8 +8,10 @@ import { setParameterNormalized, getParameterNormalized, onParameterChange, para
 
 function selectToNorm(index, max) { return index / max; }
 function normToSelect(norm, max) { return Math.round(norm * max); }
-function blendToNorm(v) { return (v + 500) / 1000; }  // -500..500 → 0..1
-function normToBlend(n) { return n * 1000 - 500; }      // 0..1 → -500..500
+function blendToNorm(v) { return v / 100; }             // 0..100 → 0..1
+function normToBlend(n) { return n * 100; }               // 0..1 → 0..100
+function pushToNorm(v) { return (v + 500) / 1000; }      // -500..500 → 0..1
+function normToPush(n) { return n * 1000 - 500; }         // 0..1 → -500..500
 function trimToNorm(v) { return (v + 24) / 48; }
 function normToTrim(n) { return n * 48 - 24; }
 
@@ -42,7 +44,7 @@ const state = {};
 for (const [id, comp] of Object.entries(COMPONENTS)) {
     state[id] = { selected: comp.defaultIndex, enabled: true };
 }
-state.masterDryWet = 100;
+state.masterPush = 100;
 state.outputTrim = 0;
 
 // ---- Tooltip ----
@@ -319,11 +321,11 @@ for (const [id, comp] of Object.entries(COMPONENTS)) {
     state[id].blend = 100;
 
     blendKnobs[id] = createBlendKnob(slot, {
-        min: -500,
-        max: 500,
+        min: 0,
+        max: 100,
         value: 100,
         step: 1,
-        formatValue: (v) => `${v > 0 ? '+' : ''}${v}%`,
+        formatValue: (v) => `${v}%`,
         onChange: (v) => {
             state[id].blend = v;
             setParameterNormalized(`${id}_blend`, blendToNorm(v));
@@ -334,15 +336,15 @@ for (const [id, comp] of Object.entries(COMPONENTS)) {
 
 // ---- Build master knobs ----
 
-const dryWetKnob = createMasterKnob(document.getElementById('master-drywet'), {
-    min: 0,
-    max: 100,
+const pushKnob = createMasterKnob(document.getElementById('master-push'), {
+    min: -500,
+    max: 500,
     value: 100,
     step: 1,
-    formatValue: (v) => `${v}%`,
+    formatValue: (v) => `${v > 0 ? '+' : ''}${v}%`,
     onChange: (v) => {
-        state.masterDryWet = v;
-        setParameterNormalized('dry_wet', v / 100);
+        state.masterPush = v;
+        setParameterNormalized('master_push', pushToNorm(v));
     },
 });
 
@@ -453,9 +455,9 @@ function syncFromBackend() {
     }
 
     // Read and apply dry/wet
-    const dryWetVal = getParameterNormalized('dry_wet') * 100;
-    state.masterDryWet = dryWetVal;
-    if (dryWetKnob) dryWetKnob.setValue(dryWetVal);
+    const pushVal = normToPush(getParameterNormalized('master_push'));
+    state.masterPush = pushVal;
+    if (pushKnob) pushKnob.setValue(pushVal);
 
     // Read and apply trim
     const trimVal = normToTrim(getParameterNormalized('output_trim'));

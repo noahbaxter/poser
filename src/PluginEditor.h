@@ -30,7 +30,7 @@ private:
     juce::WebSliderRelay cabBlendRelay;
     juce::WebSliderRelay speakerBlendRelay;
     juce::WebSliderRelay positionBlendRelay;
-    juce::WebSliderRelay dryWetRelay;
+    juce::WebSliderRelay masterPushRelay;
     juce::WebSliderRelay outputTrimRelay;
 
     // WebView component (must be after relays)
@@ -45,7 +45,7 @@ private:
     juce::WebSliderParameterAttachment cabBlendAttach;
     juce::WebSliderParameterAttachment speakerBlendAttach;
     juce::WebSliderParameterAttachment positionBlendAttach;
-    juce::WebSliderParameterAttachment dryWetAttach;
+    juce::WebSliderParameterAttachment masterPushAttach;
     juce::WebSliderParameterAttachment outputTrimAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PoserEditor)

@@ -279,6 +279,18 @@ html, body {
     pointer-events: none;
 }
 
+/* Bigger push knob */
+.push-group .master-knob {
+    width: 64px;
+    height: 64px;
+}
+
+.push-group .master-knob .knob-indicator {
+    top: 7px;
+    width: 9px;
+    height: 9px;
+}
+
 /* --- Tooltip --- */
 
 .knob-tooltip {

@@ -18,7 +18,7 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       cabBlendRelay{"cab_blend"},
       speakerBlendRelay{"speaker_blend"},
       positionBlendRelay{"position_blend"},
-      dryWetRelay{"dry_wet"},
+      masterPushRelay{"master_push"},
       outputTrimRelay{"output_trim"},
       webView{
           juce::WebBrowserComponent::Options{}
@@ -38,7 +38,7 @@ PoserEditor::PoserEditor(PoserProcessor& p)
               .withOptionsFrom(cabBlendRelay)
               .withOptionsFrom(speakerBlendRelay)
               .withOptionsFrom(positionBlendRelay)
-              .withOptionsFrom(dryWetRelay)
+              .withOptionsFrom(masterPushRelay)
               .withOptionsFrom(outputTrimRelay)
       },
       micSelectAttach{*audioProcessor.getAPVTS().getParameter("mic_select"), micSelectRelay, nullptr},
@@ -49,7 +49,7 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       cabBlendAttach{*audioProcessor.getAPVTS().getParameter("cab_blend"), cabBlendRelay, nullptr},
       speakerBlendAttach{*audioProcessor.getAPVTS().getParameter("speaker_blend"), speakerBlendRelay, nullptr},
       positionBlendAttach{*audioProcessor.getAPVTS().getParameter("position_blend"), positionBlendRelay, nullptr},
-      dryWetAttach{*audioProcessor.getAPVTS().getParameter("dry_wet"), dryWetRelay, nullptr},
+      masterPushAttach{*audioProcessor.getAPVTS().getParameter("master_push"), masterPushRelay, nullptr},
       outputTrimAttach{*audioProcessor.getAPVTS().getParameter("output_trim"), outputTrimRelay, nullptr}
 {
     addAndMakeVisible(webView);

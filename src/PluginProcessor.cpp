@@ -33,20 +33,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mic_blend", 1}, "Mic Blend",
-        juce::NormalisableRange<float>(-5.0f, 5.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"cab_blend", 1}, "Cab Blend",
-        juce::NormalisableRange<float>(-5.0f, 5.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"speaker_blend", 1}, "Speaker Blend",
-        juce::NormalisableRange<float>(-5.0f, 5.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"position_blend", 1}, "Position Blend",
-        juce::NormalisableRange<float>(-5.0f, 5.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{"dry_wet", 1}, "Dry/Wet",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+        juce::ParameterID{"master_push", 1}, "Master Push",
+        juce::NormalisableRange<float>(-5.0f, 5.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"output_trim", 1}, "Output Trim",
         juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f,
@@ -150,25 +150,26 @@ void PoserProcessor::recomputeMagnitudeResponse()
     int cabSel      = static_cast<int>(apvts.getRawParameterValue("cab_select")->load());
     int speakerSel  = static_cast<int>(apvts.getRawParameterValue("speaker_select")->load());
     int positionSel = static_cast<int>(apvts.getRawParameterValue("position_select")->load());
-    float micBlend      = apvts.getRawParameterValue("mic_blend")->load();
-    float cabBlend      = apvts.getRawParameterValue("cab_blend")->load();
-    float speakerBlend  = apvts.getRawParameterValue("speaker_blend")->load();
-    float positionBlend = apvts.getRawParameterValue("position_blend")->load();
-    float dryWet        = apvts.getRawParameterValue("dry_wet")->load();
+    float micBlend      = apvts.getRawParameterValue("mic_blend")->load();      // 0-1
+    float cabBlend      = apvts.getRawParameterValue("cab_blend")->load();      // 0-1
+    float speakerBlend  = apvts.getRawParameterValue("speaker_blend")->load();  // 0-1
+    float positionBlend = apvts.getRawParameterValue("position_blend")->load(); // 0-1
+    float masterPush    = apvts.getRawParameterValue("master_push")->load();    // -5 to 5
 
     for (int i = 0; i < complexSize; ++i)
     {
         int cb = binMapping[i];
         float totalDb = 0.0f;
-        if (micBlend != 0.0f && micSel >= 0 && micSel < ::CurveData::kNumMics)
+        if (micBlend > 0.0f && micSel >= 0 && micSel < ::CurveData::kNumMics)
             totalDb += ::CurveData::kMics[micSel].data[cb] * micBlend;
-        if (cabBlend != 0.0f && cabSel >= 0 && cabSel < ::CurveData::kNumCabs)
+        if (cabBlend > 0.0f && cabSel >= 0 && cabSel < ::CurveData::kNumCabs)
             totalDb += ::CurveData::kCabs[cabSel].data[cb] * cabBlend;
-        if (speakerBlend != 0.0f && speakerSel >= 0 && speakerSel < ::CurveData::kNumSpeakers)
+        if (speakerBlend > 0.0f && speakerSel >= 0 && speakerSel < ::CurveData::kNumSpeakers)
             totalDb += ::CurveData::kSpeakers[speakerSel].data[cb] * speakerBlend;
-        if (positionBlend != 0.0f && positionSel >= 0 && positionSel < ::CurveData::kNumPositions)
+        if (positionBlend > 0.0f && positionSel >= 0 && positionSel < ::CurveData::kNumPositions)
             totalDb += ::CurveData::kPositions[positionSel].data[cb] * positionBlend;
-        totalDb *= dryWet;
+        // Master push scales the entire composite curve
+        totalDb *= masterPush;
         magnitudeResponse[i] = std::pow(10.0f, totalDb / 20.0f);
     }
     needsResponseUpdate = false;
@@ -243,7 +244,7 @@ void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             apvts.getRawParameterValue("cab_blend")->load(),
             apvts.getRawParameterValue("speaker_blend")->load(),
             apvts.getRawParameterValue("position_blend")->load(),
-            apvts.getRawParameterValue("dry_wet")->load(),
+            apvts.getRawParameterValue("master_push")->load(),
             apvts.getRawParameterValue("output_trim")->load(),
         };
         if (needsResponseUpdate || std::memcmp(params, prevParams, sizeof(params)) != 0)

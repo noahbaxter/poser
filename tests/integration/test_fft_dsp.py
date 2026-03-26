@@ -17,12 +17,11 @@ FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "input"
 def make_plugin(plugin_path):
     """Load plugin with all blends at 0 (flat/bypass)."""
     p = load_plugin(plugin_path)
-    # Set all blends to 0 (normalized 0.5 on range -5..5)
     p.mic_blend = 0.0
     p.cab_blend = 0.0
     p.speaker_blend = 0.0
     p.position_blend = 0.0
-    p.dry_wet = 1.0
+    p.master_push = 1.0   # 100% = unity (range -5 to 5, 1.0 = 100%)
     p.output_trim = 0.0
     return p
 
@@ -108,11 +107,11 @@ class TestFFTPassthrough:
     def test_drywet_zero_is_flat(self, plugin_path):
         """Dry/wet at 0 should make all curves flat regardless of blend settings."""
         p = load_plugin(plugin_path)
-        p.mic_blend = 5.0    # max blend
-        p.cab_blend = 5.0
-        p.speaker_blend = 5.0
-        p.position_blend = 5.0
-        p.dry_wet = 0.0       # but dry/wet = 0 → all 0 dB
+        p.mic_blend = 1.0
+        p.cab_blend = 1.0
+        p.speaker_blend = 1.0
+        p.position_blend = 1.0
+        p.master_push = 0.0       # master push = 0 → all 0 dB
         p.output_trim = 0.0
 
         inp = generate_white_noise(duration=2.0)
@@ -146,11 +145,12 @@ class TestFFTMagnitude:
     def test_eq_changes_spectrum(self, plugin_path):
         """With a curve active, the output spectrum should differ from input."""
         p = load_plugin(plugin_path)
-        p.mic_blend = 3.0  # 300% — exaggerated for clear effect
+        p.mic_blend = 1.0
+        p.master_push = 3.0  # exaggerated via master push
         p.cab_blend = 0.0
         p.speaker_blend = 0.0
         p.position_blend = 0.0
-        p.dry_wet = 1.0
+        p.master_push = 1.0
         p.output_trim = 0.0
 
         inp = generate_white_noise(duration=2.0)
@@ -167,14 +167,16 @@ class TestFFTMagnitude:
     def test_negative_blend_inverts(self, plugin_path):
         """Negative blend should invert the curve (boost becomes cut)."""
         p_pos = load_plugin(plugin_path)
-        p_pos.mic_blend = 3.0
+        p_pos.mic_blend = 1.0
+        p_pos.master_push = 3.0
         p_pos.cab_blend = 0.0
         p_pos.speaker_blend = 0.0
         p_pos.position_blend = 0.0
         p_pos.dry_wet = 1.0
 
         p_neg = load_plugin(plugin_path)
-        p_neg.mic_blend = -3.0
+        p_neg.mic_blend = 1.0
+        p_neg.master_push = -3.0
         p_neg.cab_blend = 0.0
         p_neg.speaker_blend = 0.0
         p_neg.position_blend = 0.0
@@ -222,13 +224,13 @@ class TestFFTMagnitude:
         inp = generate_white_noise(duration=2.0)
 
         diffs = []
-        for blend in [0.5, 1.0, 3.0]:
+        for push in [0.5, 1.0, 3.0]:
             p = load_plugin(plugin_path)
-            p.mic_blend = blend
+            p.mic_blend = 1.0
             p.cab_blend = 0.0
             p.speaker_blend = 0.0
             p.position_blend = 0.0
-            p.dry_wet = 1.0
+            p.master_push = push
             p.output_trim = 0.0
 
             out = p.process(inp.copy(), 44100)
@@ -290,11 +292,11 @@ class TestRealAudio:
         p = load_plugin(plugin_path)
         # Mic select index 0 is C414, we want to test any mic works
         p.mic_select = 0  # C414
-        p.mic_blend = 3.0
+        p.mic_blend = 1.0
         p.cab_blend = 0.0
         p.speaker_blend = 0.0
         p.position_blend = 0.0
-        p.dry_wet = 1.0
+        p.master_push = 3.0  # exaggerated for clear effect
         p.output_trim = 0.0
 
         out = p.process(data, sr)
@@ -316,11 +318,11 @@ class TestRealAudio:
         for mic_idx in mic_values:
             p = load_plugin(plugin_path)
             p.mic_select = mic_idx
-            p.mic_blend = 3.0  # Exaggerate for clear difference
+            p.mic_blend = 1.0
             p.cab_blend = 0.0
             p.speaker_blend = 0.0
             p.position_blend = 0.0
-            p.dry_wet = 1.0
+            p.master_push = 1.0
             out = p.process(data.copy(), sr)
             outputs.append(out[2048:2048+8192].flatten())
 
