@@ -4,7 +4,7 @@
 # When called from WSL, use build-windows.sh which handles sync automatically
 #
 # Update these for your setup:
-$PluginName = "AudioPlugin"
+$PluginName = "Poser"
 $ProjectRoot = "C:\Users\$env:USERNAME\Code\audioplugin"  # Update this path
 
 param(
@@ -41,7 +41,7 @@ if ($Config -eq "clean") {
 
 # Handle install-only (no build)
 if ($Config -eq "install") {
-    $VST3Path = Join-Path $BuildDir "${PluginName}_artefacts\Release\VST3\Audio Plugin.vst3"
+    $VST3Path = Join-Path $BuildDir "${PluginName}_artefacts\Release\VST3\Poser EQ.vst3"
     if (-not (Test-Path $VST3Path)) {
         Write-Error "VST3 not found at $VST3Path - run build first"
         exit 1
@@ -98,8 +98,8 @@ Write-Host "=== Building $BuildType ===" -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 
 # Verify output
-$VST3Path = Join-Path $BuildDir "${PluginName}_artefacts\$BuildType\VST3\Audio Plugin.vst3"
-$StandalonePath = Join-Path $BuildDir "${PluginName}_artefacts\$BuildType\Standalone\Audio Plugin.exe"
+$VST3Path = Join-Path $BuildDir "${PluginName}_artefacts\$BuildType\VST3\Poser EQ.vst3"
+$StandalonePath = Join-Path $BuildDir "${PluginName}_artefacts\$BuildType\Standalone\Poser EQ.exe"
 
 Write-Host ""
 Write-Host "=== Build Complete ===" -ForegroundColor Green

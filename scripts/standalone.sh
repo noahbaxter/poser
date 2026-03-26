@@ -12,7 +12,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 source "$SCRIPT_DIR/_common.sh"
 
 CMAKE_BUILD_DIR="$PROJECT_ROOT/build-standalone"
-APP_PATH="$CMAKE_BUILD_DIR/${PLUGIN_NAME}_artefacts/Debug/Standalone/Audio Plugin.app"
+APP_PATH="$CMAKE_BUILD_DIR/${PLUGIN_NAME}_artefacts/Debug/Standalone/Poser EQ.app"
 
 # Parse flags
 LAUNCH=true
