@@ -3,20 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Poser EQ</title>
+    <title>Poser</title>
     <link rel="stylesheet" href="main.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Poser EQ</h1>
-        <div class="version" id="version-num"></div>
+    <div class="plugin">
+        <!-- Tab labels -->
+        <div class="tab-row">
+            <div class="tab active" data-tab="mic">MIC</div>
+            <div class="tab" data-tab="cab">CAB</div>
+            <div class="tab" data-tab="speaker">SPK</div>
+            <div class="tab" data-tab="position">POS</div>
+        </div>
 
-        <div class="control-group">
-            <label for="gain-slider">Gain</label>
-            <input type="range" id="gain-slider" min="0" max="1" step="0.001" value="0.5">
-            <span class="value-display" id="gain-value">0.0 dB</span>
+        <!-- Blend knobs (one per section) -->
+        <div class="blend-row">
+            <div class="blend-slot" id="blend-mic"></div>
+            <div class="blend-slot" id="blend-cab"></div>
+            <div class="blend-slot" id="blend-speaker"></div>
+            <div class="blend-slot" id="blend-position"></div>
+        </div>
+
+        <!-- Big selector knob area -->
+        <div class="selector-area">
+            <div class="selector-panel active" id="panel-mic"></div>
+            <div class="selector-panel" id="panel-cab"></div>
+            <div class="selector-panel" id="panel-speaker"></div>
+            <div class="selector-panel" id="panel-position"></div>
+        </div>
+
+        <!-- Bottom: dry/wet + trim -->
+        <div class="bottom-row">
+            <div class="master-group">
+                <div class="master-label">DRY/WET</div>
+                <div class="master-slot" id="master-drywet"></div>
+            </div>
+            <div class="master-group">
+                <div class="master-label">TRIM</div>
+                <div class="master-slot" id="master-trim"></div>
+            </div>
         </div>
     </div>
+
+    <div class="knob-tooltip" id="knob-tooltip"></div>
 
     <script type="module" src="main.js"></script>
 </body>

@@ -7,86 +7,296 @@
 html, body {
     width: 100%;
     height: 100%;
-    background: #1e1e1e;
-    color: #e0e0e0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #fff;
+    color: #000;
+    font-family: "SF Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
 }
 
-.container {
+.plugin {
     display: flex;
     flex-direction: column;
+    height: 100%;
+    padding: 12px 16px;
+    gap: 0;
+}
+
+/* --- Tab row --- */
+
+.tab-row {
+    display: flex;
+    justify-content: center;
+    gap: 0;
+    padding-bottom: 0;
+}
+
+.tab {
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    color: #888;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 6px 0;
+    transition: all 0.15s;
+    width: 80px;
+    text-align: center;
+    border-radius: 4px;
+    background: #ddd;
+}
+
+.tab:hover {
+    background: #ccc;
+    color: #555;
+}
+
+.tab.active {
+    background: #000;
+    color: #fff;
+}
+
+
+/* --- Blend knobs row --- */
+
+.blend-row {
+    display: flex;
+    justify-content: center;
+    gap: 0;
+    padding: 6px 0 6px;
+    position: relative;
+    z-index: 10;
+}
+
+.blend-slot {
+    position: relative;
+    width: 80px;
+    height: 28px;
+    display: flex;
+    justify-content: center;
+}
+
+.blend-knob {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    cursor: grab;
+    cursor: -webkit-grab;
+    transition: opacity 0.15s;
+}
+
+.blend-knob:active {
+    cursor: grabbing;
+}
+
+.blend-knob.disabled {
+    opacity: 0.2;
+    cursor: default;
+}
+
+.blend-knob .knob-visual {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.blend-knob .knob-body {
+    width: 100%;
+    height: 100%;
+    background: #000;
+    border-radius: 50%;
+}
+
+.blend-knob .knob-indicator {
+    position: absolute;
+    top: 3px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    background: #fff;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+/* --- Selector area --- */
+
+.selector-area {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+    z-index: 1;
+    overflow: hidden;
+}
+
+.selector-panel {
+    position: absolute;
+    inset: 0;
+    display: none;
     align-items: center;
     justify-content: center;
-    height: 100%;
-    padding: 24px;
-    gap: 16px;
 }
 
-h1 {
+.selector-panel.active {
+    display: flex;
+}
+
+
+/* --- Big selector knob --- */
+
+.selector-wrap {
+    position: relative;
+    width: 380px;
+    height: 380px;
+}
+
+.selector-ring {
+    position: absolute;
+    inset: 0;
+}
+
+.selector-option {
+    position: absolute;
     font-size: 20px;
-    font-weight: 500;
-    color: #ffffff;
-    letter-spacing: 0.5px;
+    font-weight: 800;
+    color: #ccc;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 0.12s, font-weight 0.12s;
+    letter-spacing: 1px;
 }
 
-.version {
-    font-size: 11px;
-    color: #666;
-    margin-top: -12px;
+.selector-option.active {
+    color: #000;
+    font-weight: 900;
+    font-size: 22px;
 }
 
-.control-group {
+.selector-option:hover {
+    color: #888;
+}
+
+.selector-knob-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 160px;
+    height: 160px;
+    background: #000;
+    border-radius: 50%;
+    cursor: grab;
+    cursor: -webkit-grab;
+}
+
+.selector-knob-center:active {
+    cursor: grabbing;
+    cursor: -webkit-grabbing;
+}
+
+.selector-indicator {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+}
+
+/* --- Bottom row --- */
+
+.bottom-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 40px;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+    position: relative;
+    z-index: 10;
+}
+
+.master-group {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    width: 100%;
-    max-width: 300px;
+    gap: 2px;
 }
 
-.control-group label {
-    font-size: 12px;
+.master-label {
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    color: #bbb;
     text-transform: uppercase;
-    letter-spacing: 1px;
-    color: #999;
+    order: 2;
 }
 
-input[type="range"] {
+.master-knob {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    cursor: grab;
+    cursor: -webkit-grab;
+}
+
+.master-knob::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    z-index: 1;
+}
+
+.master-knob:active {
+    cursor: grabbing;
+}
+
+.master-knob .knob-visual {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.master-knob .knob-body {
     width: 100%;
-    height: 6px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: #333;
+    height: 100%;
+    background: #000;
+    border-radius: 50%;
+}
+
+.master-knob .knob-indicator {
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 7px;
+    height: 7px;
+    background: #fff;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+/* --- Tooltip --- */
+
+.knob-tooltip {
+    position: fixed;
+    background: #000;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    padding: 3px 8px;
     border-radius: 3px;
-    outline: none;
-    cursor: pointer;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 100;
+    white-space: nowrap;
 }
 
-input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #4a9eff;
-    cursor: pointer;
-    border: 2px solid #1e1e1e;
-}
-
-input[type="range"]::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #4a9eff;
-    cursor: pointer;
-    border: 2px solid #1e1e1e;
-}
-
-.value-display {
-    font-size: 14px;
-    font-variant-numeric: tabular-nums;
-    color: #ccc;
+.knob-tooltip.visible {
+    opacity: 1;
 }

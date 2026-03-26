@@ -31,9 +31,8 @@ PoserEditor::PoserEditor(PoserProcessor& p)
     webView.setWantsKeyboardFocus(false);
     webView.setOpaque(false);
 
-    setResizable(true, true);
-    setResizeLimits(300, 200, 800, 600);
-    setSize(500, 400);
+    setResizable(false, false);
+    setSize(440, 480);
 
     // Delay navigation for WebView2 async initialization on Windows
     juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<PoserEditor>(this)]() {
