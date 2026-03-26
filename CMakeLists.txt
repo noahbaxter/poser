@@ -78,7 +78,16 @@ target_sources(Poser
     PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
+        third_party/AudioFFT/AudioFFT.cpp
 )
+
+target_include_directories(Poser PRIVATE third_party/AudioFFT)
+
+# Enable Apple Accelerate backend for AudioFFT on macOS
+if(APPLE)
+    target_compile_definitions(Poser PRIVATE AUDIOFFT_APPLE_ACCELERATE)
+    target_link_libraries(Poser PRIVATE "-framework Accelerate")
+endif()
 
 # Binary data for web files
 juce_add_binary_data(PoserData

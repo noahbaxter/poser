@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <unordered_map>
+#include "AudioFFT.h"
 
 class PoserProcessor : public juce::AudioProcessor
 {
@@ -50,35 +51,34 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     // FFT with overlap-add (50% overlap, Hann window)
-    static constexpr int fftOrder = 10;
-    static constexpr int fftSize = 1 << fftOrder;  // 1024
-    static constexpr int hopSize = fftSize / 2;     // 512
-    juce::dsp::FFT fft{fftOrder};
+    static constexpr int fftSize = 1024;
+    static constexpr int hopSize = fftSize / 2;
+    static constexpr int complexSize = fftSize / 2 + 1;
+    audiofft::AudioFFT fft;
 
     // Hann window
     float window[fftSize] = {};
 
-    // Per-channel input FIFO (collects fftSize samples)
+    // Per-channel input FIFO
     float inputFifo[2][fftSize] = {};
 
-    // Per-channel output accumulator (overlap-add target, 2x fftSize for overlap)
+    // Per-channel output accumulator (2x for overlap)
     float outputAccum[2][fftSize * 2] = {};
 
-    // Position in the input FIFO
     int fifoPos = 0;
-
-    // Position in the output accumulator to read from
     int outReadPos = 0;
 
-    // FFT work buffer
-    float fftWork[fftSize * 2] = {};
+    // Split-complex FFT buffers
+    float fftRe[complexSize] = {};
+    float fftIm[complexSize] = {};
+    float fftOut[fftSize] = {};
 
     // Magnitude response
-    float magnitudeResponse[fftSize / 2 + 1] = {};
+    float magnitudeResponse[complexSize] = {};
     bool needsResponseUpdate = true;
 
     // Bin mapping
-    int binMapping[fftSize / 2 + 1] = {};
+    int binMapping[complexSize] = {};
 
     // Parameter change detection
     float prevParams[10] = {};

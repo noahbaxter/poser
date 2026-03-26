@@ -85,24 +85,32 @@ void PoserProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     juce::ignoreUnused(samplesPerBlock);
     currentSampleRate = sampleRate;
 
-    // Hann window
+    // Init AudioFFT
+    fft.init(static_cast<size_t>(fftSize));
+
+    // Sqrt-Hann window (analysis * synthesis = Hann, which sums to 1.0 at 50% overlap)
     for (int i = 0; i < fftSize; ++i)
-        window[i] = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi
-                                              * static_cast<float>(i) / static_cast<float>(fftSize)));
+    {
+        float hann = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi
+                                               * static_cast<float>(i) / static_cast<float>(fftSize)));
+        window[i] = std::sqrt(hann);
+    }
 
     // Clear buffers
     std::memset(inputFifo, 0, sizeof(inputFifo));
     std::memset(outputAccum, 0, sizeof(outputAccum));
+    std::memset(fftRe, 0, sizeof(fftRe));
+    std::memset(fftIm, 0, sizeof(fftIm));
+    std::memset(fftOut, 0, sizeof(fftOut));
     fifoPos = 0;
     outReadPos = 0;
 
     // Init magnitude response to flat
-    for (int i = 0; i < fftSize / 2 + 1; ++i)
+    for (int i = 0; i < complexSize; ++i)
         magnitudeResponse[i] = 1.0f;
 
-    // Bin mapping
-    int numBins = fftSize / 2 + 1;
-    for (int i = 0; i < numBins; ++i)
+    // Bin mapping: linear FFT bins → nearest CurveData log-spaced bin
+    for (int i = 0; i < complexSize; ++i)
     {
         float fftFreq = static_cast<float>(i) * static_cast<float>(sampleRate) / static_cast<float>(fftSize);
         int bestIdx = 0;
@@ -148,8 +156,7 @@ void PoserProcessor::recomputeMagnitudeResponse()
     float positionBlend = apvts.getRawParameterValue("position_blend")->load();
     float dryWet        = apvts.getRawParameterValue("dry_wet")->load();
 
-    int numBins = fftSize / 2 + 1;
-    for (int i = 0; i < numBins; ++i)
+    for (int i = 0; i < complexSize; ++i)
     {
         int cb = binMapping[i];
         float totalDb = 0.0f;
@@ -169,34 +176,31 @@ void PoserProcessor::recomputeMagnitudeResponse()
 
 void PoserProcessor::processFFTFrame(int channel)
 {
-    // Copy input FIFO into work buffer, apply window
+    // Copy input with Hann window into temp buffer
+    float windowed[fftSize];
     for (int i = 0; i < fftSize; ++i)
-        fftWork[i] = inputFifo[channel][i] * window[i];
+        windowed[i] = inputFifo[channel][i] * window[i];
 
-    // Zero imaginary part
-    for (int i = fftSize; i < fftSize * 2; ++i)
-        fftWork[i] = 0.0f;
+    // Forward FFT (split-complex, all scaling handled by AudioFFT)
+    fft.fft(windowed, fftRe, fftIm);
 
-    // Forward FFT
-    fft.performRealOnlyForwardTransform(fftWork);
-
-    // Apply magnitude response
-    int numBins = fftSize / 2 + 1;
-    for (int i = 0; i < numBins; ++i)
+    // Apply magnitude response (multiply real and imag by gain)
+    for (int i = 0; i < complexSize; ++i)
     {
-        fftWork[i * 2]     *= magnitudeResponse[i];
-        fftWork[i * 2 + 1] *= magnitudeResponse[i];
+        fftRe[i] *= magnitudeResponse[i];
+        fftIm[i] *= magnitudeResponse[i];
     }
 
     // Inverse FFT
-    fft.performRealOnlyInverseTransform(fftWork);
+    fft.ifft(fftOut, fftRe, fftIm);
 
-    // Overlap-add into output accumulator (no synthesis window needed)
-    // Hann analysis window with 50% overlap sums to exactly 1.0 → perfect reconstruction
+    // Apply synthesis window (sqrt-Hann) and overlap-add
+    // sqrt-Hann * sqrt-Hann = Hann, sum of Hann at 50% overlap = 1.0 → perfect reconstruction
+    int accumSize = fftSize * 2;
     for (int i = 0; i < fftSize; ++i)
     {
-        int idx = (outReadPos + i) % (fftSize * 2);
-        outputAccum[channel][idx] += fftWork[i];
+        int idx = (outReadPos + i) % accumSize;
+        outputAccum[channel][idx] += fftOut[i] * window[i];
     }
 }
 
@@ -253,11 +257,11 @@ void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 
     for (int sample = 0; sample < numSamples; ++sample)
     {
-        // Push input sample into FIFO for each channel
+        // Push input into FIFO
         for (int ch = 0; ch < numChannels; ++ch)
             inputFifo[ch][fifoPos] = buffer.getSample(ch, sample);
 
-        // Read from output accumulator (delayed by fftSize for latency compensation)
+        // Read from output accumulator
         float trimDb = getSmoothedParam("output_trim");
         float trimGain = juce::Decibels::decibelsToGain(trimDb);
 
@@ -265,7 +269,7 @@ void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         for (int ch = 0; ch < numChannels; ++ch)
         {
             float out = outputAccum[ch][readIdx] * trimGain;
-            outputAccum[ch][readIdx] = 0.0f;  // Clear after reading for next overlap cycle
+            outputAccum[ch][readIdx] = 0.0f;
             if (!std::isfinite(out)) out = 0.0f;
             buffer.setSample(ch, sample, out);
         }
@@ -273,17 +277,17 @@ void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         outReadPos = (outReadPos + 1) % accumSize;
         ++fifoPos;
 
-        // When we've collected hopSize new samples, process a frame
+        // When FIFO is full, process a frame
         if (fifoPos >= fftSize)
         {
             for (int ch = 0; ch < numChannels; ++ch)
                 processFFTFrame(ch);
 
-            // Shift the input FIFO: move the second half to the first half (50% overlap)
+            // Shift: keep second half for 50% overlap
             for (int ch = 0; ch < numChannels; ++ch)
                 std::memmove(inputFifo[ch], inputFifo[ch] + hopSize, static_cast<size_t>(hopSize) * sizeof(float));
 
-            fifoPos = hopSize;  // Next fill starts from the middle
+            fifoPos = hopSize;
         }
     }
 }
