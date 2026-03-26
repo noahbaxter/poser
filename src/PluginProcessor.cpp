@@ -170,16 +170,6 @@ void PoserProcessor::recomputeMagnitudeResponse()
             totalDb += ::CurveData::kPositions[positionSel].data[cb] * positionBlend;
         // Master push scales the entire composite curve
         totalDb *= masterPush;
-
-        // Soft-clip: tanh compression above ±24dB to prevent runaway boosts
-        constexpr float softClipThreshold = 24.0f;
-        if (std::abs(totalDb) > softClipThreshold)
-        {
-            float sign = totalDb > 0.0f ? 1.0f : -1.0f;
-            float excess = std::abs(totalDb) - softClipThreshold;
-            totalDb = sign * (softClipThreshold + softClipThreshold * std::tanh(excess / softClipThreshold));
-        }
-
         magnitudeResponse[i] = std::pow(10.0f, totalDb / 20.0f);
     }
 
