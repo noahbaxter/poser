@@ -71,8 +71,8 @@ install_plugins() {
     mkdir -p "$vst3_dest" "$au_dest"
 
     # VST3 has a space in the name from CMake
-    local vst3_name="Audio Plugin.vst3"
-    local au_name="Audio Plugin.component"
+    local vst3_name="Poser EQ.vst3"
+    local au_name="Poser EQ.component"
 
     if [ -d "$src_dir/VST3/$vst3_name" ]; then
         rm -rf "$vst3_dest/$PLUGIN_NAME.vst3"
@@ -158,8 +158,8 @@ case "$MODE" in
         cmake --build "$BUILD_DIR" --config Release -j$(cpu_count)
 
         ARTEFACTS_DIR="$BUILD_DIR/${PLUGIN_NAME}_artefacts/Release"
-        VST3_PATH="$ARTEFACTS_DIR/VST3/Audio Plugin.vst3"
-        AU_PATH="$ARTEFACTS_DIR/AU/Audio Plugin.component"
+        VST3_PATH="$ARTEFACTS_DIR/VST3/Poser EQ.vst3"
+        AU_PATH="$ARTEFACTS_DIR/AU/Poser EQ.component"
 
         if [ ! -d "$VST3_PATH" ] || [ ! -d "$AU_PATH" ]; then
             echo -e "${RED}Error: Build artifacts missing${NC}"
@@ -168,7 +168,7 @@ case "$MODE" in
 
         # Check Universal Binary
         echo "Checking architectures..."
-        VST3_ARCHS=$(lipo -archs "$VST3_PATH/Contents/MacOS/Audio Plugin" 2>/dev/null || echo "unknown")
+        VST3_ARCHS=$(lipo -archs "$VST3_PATH/Contents/MacOS/Poser EQ" 2>/dev/null || echo "unknown")
 
         if [[ "$VST3_ARCHS" == *"arm64"* ]] && [[ "$VST3_ARCHS" == *"x86_64"* ]]; then
             echo -e "${GREEN}✓ VST3 is Universal Binary: $VST3_ARCHS${NC}"
@@ -197,7 +197,7 @@ case "$MODE" in
         cat > "$TEMP_DIR/Install.command" << 'INSTALL_SCRIPT'
 #!/bin/bash
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PLUGIN_NAME="AudioPlugin"
+PLUGIN_NAME="Poser"
 echo "Installing $PLUGIN_NAME..."
 mkdir -p "$HOME/Library/Audio/Plug-Ins/VST3"
 mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"

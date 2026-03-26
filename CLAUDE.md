@@ -1,5 +1,9 @@
 # Poser
 
+EQ plugin shipping curated frequency response curves of famous mics and guitar cab speakers.
+Pick a mic/cab, dial a blend knob, signal takes on that tonal character.
+NOT a mic modeler, NOT a cab sim — it's a creative mixing/flavor tool. See `docs/spec.md`.
+
 JUCE audio plugin. VST3/AU on macOS, VST3 on Windows, VST3/LV2/CLAP on Linux.
 
 ## Build
