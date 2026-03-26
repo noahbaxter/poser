@@ -5,8 +5,9 @@ import json
 import re
 from pathlib import Path
 
-INPUT = Path(__file__).resolve().parent.parent / "output" / "extracted_components.json"
-OUTPUT = Path(__file__).resolve().parent.parent / "src" / "CurveData.h"
+REPO = Path(__file__).resolve().parent.parent
+INPUT = REPO / "data" / "curves" / "extracted_components.json"
+OUTPUT = REPO / "src" / "CurveData.h"
 
 FLOATS_PER_LINE = 12
 

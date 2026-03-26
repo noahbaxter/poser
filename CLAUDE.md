@@ -26,6 +26,34 @@ JUCE audio plugin. VST3/AU on macOS, VST3 on Windows, VST3/LV2/CLAP on Linux.
 ./scripts/test.sh validate      # pluginval at strictness 10 (or: validate 5)
 ```
 
+## Data Tools
+
+Offline Python tools for generating curve data. All images go to `/tmp/poser/`.
+
+```
+tools/
+  curves/                    # Frequency response curve extraction
+    digitize.py              # Extract curves from freq response chart images
+    compare.py               # Validate curves across sources
+    build.py                 # All curve sources → data/curves/extracted_components.json
+    generate_header.py       # extracted_components.json → src/CurveData.h
+  ir/                        # Impulse response decomposition
+    inventory.py             # Index IR collection from external drive
+    extract_components.py    # Decompose IRs into cab/speaker/mic/position
+    decomposition.py         # Shared DSP/analysis library
+    preview.py               # Quick IR visualization
+    preview_cabs.py          # Multi-cab speaker comparison
+
+data/
+  curves/
+    atk/                     # Audio Test Kitchen measured responses (CSV)
+    digitized/               # Curves extracted from chart images (JSON)
+    extracted_components.json # Compiled curve data (generated)
+  ir/
+    ir_inventory.json        # IR collection index (generated)
+    v30_cab_comparison.json  # Cab analysis results (generated)
+```
+
 ## Adding Web Assets
 
 1. Add file path to `juce_add_binary_data(PoserData ...)` in `CMakeLists.txt`

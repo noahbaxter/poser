@@ -11,8 +11,9 @@ import json
 import numpy as np
 from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "mic_responses"
-COMPONENTS_JSON = Path(__file__).resolve().parent.parent / "output" / "extracted_components.json"
+REPO = Path(__file__).resolve().parent.parent
+DATA_DIR = REPO / "data" / "curves" / "atk"
+COMPONENTS_JSON = REPO / "data" / "curves" / "extracted_components.json"
 
 # Map CSV filenames to display names
 MIC_MAP = {
@@ -95,7 +96,7 @@ def main():
 
     print(f"\nReplaced {old_mic_count} IR-extracted mics with {len(new_mics)} ATK measured mics")
     print(f"Wrote {COMPONENTS_JSON}")
-    print(f"\nNow run: python3 scripts/generate_curve_header.py")
+    print(f"\nNow run: python3 tools/curves/generate_header.py")
 
 
 if __name__ == "__main__":

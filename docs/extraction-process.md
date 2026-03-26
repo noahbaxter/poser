@@ -1,71 +1,93 @@
-# Poser — Component Extraction Process
+# Poser — Data Extraction & Curve Generation
 
-## Goal
+## Overview
 
-Extract four EQ coloration layers from audio signal chain data:
-1. **Cab** — the cabinet's contribution (box resonance, internal reflections)
-2. **Speaker** — the speaker's contribution (cone breakup, presence peak, rolloff)
-3. **Mic** — the microphone's coloration (frequency response curve)
-4. **Position** — mic placement effect (bright center vs dark edge)
+Poser's EQ curves come from published frequency response data — manufacturer spec sheets,
+lab measurements (Audio Test Kitchen), and digitized charts (RecordingHacks). Cab/speaker
+filter parameters are derived from impulse response analysis.
 
-Each layer becomes a selectable EQ curve in the plugin with its own blend knob. The user picks one of each and dials in how much flavor they want.
+All curve data lives in `data/`. The build step compiles everything into `src/CurveData.h`.
 
-**These are NOT trying to reconstruct an IR.** They're independent tonal colorations that happen to come from the same signal chain.
+## Frequency Response Curves
 
-## Data Sources
+### Adding a mic from Audio Test Kitchen (CSV)
 
-### Mic curves (primary source: manufacturer data)
-- Digitize from manufacturer spec sheets (Shure, Sennheiser, AKG, Neumann, etc.)
-- These are ground truth — controlled on-axis measurements in anechoic conditions
-- No extraction needed, just digitization
+1. Place the CSV in `data/curves/atk/` with format `frequency,dB` (one pair per line)
+2. Add the filename → display name mapping in `tools/curves/build.py` (`MIC_MAP` dict)
+3. Run the build:
+```bash
+python3 tools/curves/build.py
+python3 tools/curves/generate_header.py
+```
 
-### Cab, speaker, position curves (primary source: IR analysis)
-- Derived from multi-variable impulse response collections
-- The IR-extracted mic component serves as cross-validation against manufacturer curves
+### Adding a mic by digitizing a frequency response chart
 
-## Extraction Method
+This works with any frequency response chart image — RecordingHacks, manufacturer spec sheets, user manuals, etc. The tool extracts colored curves from the image using palette analysis and outputs JSON data points.
 
-### The math
+1. Get a frequency response chart image (PNG). For RecordingHacks, the tool downloads automatically:
+```bash
+# RecordingHacks comparison graph (two mics, 1200x401 PNG)
+python3 tools/curves/digitize.py 0006 0253              # SM57 vs SM58
+python3 tools/curves/digitize.py 0006 0253 --first      # SM57 only
+python3 tools/curves/digitize.py 0860 0255              # U87 vs SM7B
 
-Every IR captures the full chain: cab × speaker × mic × position. In dB, these are additive. To isolate one variable, average across all others — the other variables cancel out, leaving just the target.
+# Local image file
+python3 tools/curves/digitize.py --image /path/to/chart.png
+```
 
-**Grand mean** = average of ALL IRs. This is the "baseline" — what an average cab+speaker+mic+position sounds like.
+2. Check the comparison plot in `/tmp/poser/` — original image on top, digitized curves on bottom. Verify the curves match visually.
 
-**Cab component** = (average of all IRs in that cab) - grand_mean
-- Averages out speaker, mic, position → what's left is the cab
+3. Validate against another source if available:
+```bash
+python3 tools/curves/compare.py
+```
 
-**Speaker component** = (average of all IRs with that speaker) - grand_mean - cab_component
-- Averages out mic, position → subtracts cab → what's left is the speaker
+4. The digitized JSON is saved to `data/curves/digitized/`. To include it in the plugin, update `tools/curves/build.py` to also read from the digitized directory, then rebuild:
+```bash
+python3 tools/curves/build.py
+python3 tools/curves/generate_header.py
+```
 
-**Mic component** = (average of all IRs with that mic) - grand_mean
-- Averages out cab, speaker, position → what's left is the mic's coloration
+### RecordingHacks mic catalog
 
-**Position component** = (average of all IRs at that position) - grand_mean
-- Averages out cab, speaker, mic → what's left is the position's effect
+The full catalog of 937 mics is at `/tmp/rh_all_mics.txt` (if previously scraped). The autocomplete API can be queried for mic IDs:
+- Endpoint: `https://recordinghacks.com/kws.php?m=2&q={query}` (2+ chars, case-sensitive)
+- Returns: `Mic Name (Pattern)\tID`
+- Graph: `https://recordinghacks.com/graphs2.php/{id}` (single) or `/{id1}-{id2}` (comparison, larger)
 
-### What makes a good component
+### Digitizer calibration notes
 
-1. **Coherent shape** — smooth, identifiable features (peaks, dips, slopes), not random noise
-2. **Distinct from siblings** — V30 looks different from G80, SM57 looks different from R121
-3. **Stable across data** — doesn't change dramatically if you exclude a few IRs
-4. **Scales well** — at 5x or 10x blend, it's still a musically useful EQ shape, not spiky garbage
+The digitizer handles:
+- **Paletted PNGs** — works at the palette level, classifying entries as pure curve, watermark-blended curve, or background
+- **Watermark occlusion** — uses a two-pass approach: pure colors first, then blend colors to fill gaps in occluded regions
+- **Axis calibration** — auto-detects gridlines and computes log-frequency mapping (doesn't assume axis boundaries equal labeled range)
+- **Legend masking** — skips the legend region in top-left corner
 
-### What we DON'T need
+For non-RecordingHacks images, you may need to adjust the calibration. The tool currently assumes:
+- Log-frequency X axis with standard decade gridlines
+- Linear dB Y axis (±20dB)
+- Colored curves on a light gray background
 
-- Perfect recombination (cab + speaker + mic + position ≈ original IR) — nice but not required
-- Large magnitude at 1x — small differences become large at high blend
-- Phase accuracy — we only extract magnitude, which is correct for this use case
+## Build Step
 
-## Decision Points
+Curve data lives in `data/`. The build step compiles it into the plugin:
 
-After running the extraction:
+```bash
+python3 tools/curves/build.py           # → data/curves/extracted_components.json
+python3 tools/curves/generate_header.py  # → src/CurveData.h
+```
 
-1. **If mic components from IRs roughly match manufacturer curves** → validates the entire methodology. The extraction is working correctly.
+`CurveData.h` contains constexpr arrays that the plugin reads at runtime. The build step:
+- Interpolates all curves onto a 512-point log-frequency grid (20Hz–20kHz)
+- Mean-subtracts so curves represent tonal character relative to flat
+- Normalizes peak magnitude for consistent blend knob behavior
 
-2. **If cab components are coherent and distinct** → ship cab selector in the plugin.
+## File Reference
 
-3. **If speaker components are coherent and distinct** → ship speaker selector.
-   If they're mostly noise → ship whole-chain cab+speaker presets instead.
-
-4. **If position components show a clear bright-to-dark gradient** → ship a position knob (or map it to a tilt control).
-   If they're noisy → skip position, it's already captured in the mic averaging.
+| Location | Description |
+|----------|-------------|
+| `data/curves/atk/*.csv` | Audio Test Kitchen measured responses |
+| `data/curves/digitized/*.json` | Curves digitized from chart images |
+| `data/curves/extracted_components.json` | Compiled curve data (all sources) |
+| `src/CurveData.h` | Auto-generated C++ header (don't edit manually) |
+| `/tmp/poser/` | Ephemeral images/plots (not committed) |
