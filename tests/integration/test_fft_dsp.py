@@ -322,7 +322,7 @@ class TestRealAudio:
             p.cab_blend = 0.0
             p.speaker_blend = 0.0
             p.position_blend = 0.0
-            p.master_push = 1.0
+            p.master_push = 3.0  # Exaggerate to make differences clear
             out = p.process(data.copy(), sr)
             outputs.append(out[2048:2048+8192].flatten())
 

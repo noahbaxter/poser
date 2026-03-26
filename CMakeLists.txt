@@ -95,6 +95,7 @@ juce_add_binary_data(PoserData
     SOURCES
         web/index.html
         web/main.js
+        web/components/knob.js
         web/main.css
         web/lib/juce-bridge.js
         web/lib/juce/index.js

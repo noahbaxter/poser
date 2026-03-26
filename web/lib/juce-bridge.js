@@ -27,6 +27,11 @@ export function getParameterNormalized(id) {
     return state?.getNormalisedValue() ?? 0;
 }
 
+export function getParameterScaled(id) {
+    const state = sliderStates[id];
+    return state?.getScaledValue() ?? 0;
+}
+
 export function getParameterProperties(id) {
     const state = sliderStates[id];
     return state?.properties ?? null;

@@ -33,6 +33,20 @@ def display_name(comp_type: str, name: str) -> str:
     return name
 
 
+TARGET_PEAK_DB = 6.0  # Normalize all curves so peak magnitude = ±6dB at 100% blend
+
+
+def normalize_curve(mag: list[float]) -> list[float]:
+    """Normalize curve so peak absolute value = TARGET_PEAK_DB.
+    This ensures all presets have similar impact at the same knob position."""
+    import math
+    peak = max(abs(v) for v in mag)
+    if peak < 0.001:
+        return mag  # Don't scale near-zero curves
+    scale = TARGET_PEAK_DB / peak
+    return [v * scale for v in mag]
+
+
 def format_float_array(values: list[float]) -> str:
     """Format floats at 4 decimal places, 12 per line."""
     lines = []
@@ -77,11 +91,15 @@ def main():
         items = components[comp_type]
         sorted_names = sorted(items.keys())
 
-        # Individual curve arrays
+        # Individual curve arrays (normalized to TARGET_PEAK_DB)
         for name in sorted_names:
             ident = sanitize_ident(name)
             var_name = f"k{singular}_{ident}"
             mag = items[name]["magnitude_db"]
+            raw_peak = max(abs(v) for v in mag)
+            mag = normalize_curve(mag)
+            norm_peak = max(abs(v) for v in mag)
+            print(f"  {name:12s} raw peak {raw_peak:5.2f}dB → normalized {norm_peak:5.2f}dB")
             out.append(f"static constexpr float {var_name}[] = {{")
             out.append(format_float_array(mag))
             out.append("};")
