@@ -264,8 +264,10 @@ def generate_header():
     out.append("};")
     out.append("")
 
-    # Cab LPF: average frequency response shape of real guitar cabs from IR data.
-    # Normalized at 1kHz so it's purely a filter shape, not a level offset.
+    # Cab LPF: modeled from real cab IR data as a simple bandpass shape.
+    # Real cabs are essentially a bandpass: HPF below ~80Hz, LPF above ~6kHz.
+    # We model this as two smooth rolloffs meeting at unity in the passband,
+    # rather than using the raw (noisy) IR average directly.
     cab_lpf_path = REPO / "data" / "ir" / "v30_cab_comparison.json"
     if cab_lpf_path.exists():
         with open(cab_lpf_path) as f:
@@ -274,25 +276,44 @@ def generate_header():
         all_cab_mags = [np.array(ir_data["cabs"][n]["magnitude_db"])
                         for n in ir_data["cabs"]]
         avg_cab = np.mean(all_cab_mags, axis=0)
-        # Normalize at 1kHz
-        idx_1k = int(np.argmin(np.abs(ir_freqs - 1000)))
-        avg_cab -= avg_cab[idx_1k]
-        # Interpolate onto our frequency grid
-        log_ir = np.log10(np.maximum(ir_freqs, 1.0))
-        log_tgt = np.log10(np.maximum(np.array(freqs), 1.0))
-        cab_lpf = np.interp(log_tgt, log_ir, avg_cab)
-        # Convert to linear gain for runtime multiplication
-        cab_lpf_linear = (10.0 ** (cab_lpf / 20.0)).tolist()
 
-        out.append("// Average cab frequency response (linear gain, normalized at 1kHz).")
-        out.append("// Apply on top of cab character curve when cab LPF is enabled.")
+        # Interpolate onto our frequency grid
+        target_freqs = np.array(freqs)
+        log_ir = np.log10(np.maximum(ir_freqs, 1.0))
+        log_tgt = np.log10(np.maximum(target_freqs, 1.0))
+        cab_curve = np.interp(log_tgt, log_ir, avg_cab)
+
+        # Find the average level in the passband (100Hz-4kHz) as our 0dB reference
+        passband = (target_freqs >= 100) & (target_freqs <= 4000)
+        ref_db = np.mean(cab_curve[passband])
+        cab_curve -= ref_db  # passband averages to 0dB
+
+        # Build a clean bandpass: unity in passband, rolloff at edges
+        # HPF: 12dB/oct below 80Hz (2nd order)
+        # LPF: 12dB/oct above 6kHz (2nd order)
+        cab_lpf_db = np.zeros(len(target_freqs))
+        for i, f in enumerate(target_freqs):
+            if f < 80:
+                # HPF rolloff: 12dB/octave
+                cab_lpf_db[i] = 12.0 * np.log2(max(f, 1.0) / 80.0)
+            elif f > 6000:
+                # LPF rolloff: 12dB/octave
+                cab_lpf_db[i] = -12.0 * np.log2(f / 6000.0)
+
+        cab_lpf_linear = (10.0 ** (cab_lpf_db / 20.0)).tolist()
+
+        out.append("// Cab bandpass filter — modeled from real cab IRs.")
+        out.append("// Unity (1.0) from 80Hz-6kHz, 12dB/oct HPF below, 12dB/oct LPF above.")
         out.append(f"static constexpr float kCabLPF[] = {{")
         out.append(format_float_array(cab_lpf_linear))
         out.append("};")
         out.append("")
-        print(f"Cab LPF: from {len(all_cab_mags)} real cab IRs, "
-              f"{avg_cab[0]:+.1f}dB at {freqs[0]:.0f}Hz, "
-              f"{avg_cab[-1]:+.1f}dB at {freqs[-1]:.0f}Hz")
+
+        for label, freq in [("20", 20), ("40", 40), ("80", 80), ("1k", 1000),
+                             ("6k", 6000), ("10k", 10000), ("16k", 16000)]:
+            idx = int(np.argmin(np.abs(target_freqs - freq)))
+            print(f"  Cab LPF @ {label}: {cab_lpf_db[idx]:+.1f}dB ({cab_lpf_linear[idx]:.3f})")
+        print(f"Cab LPF: 12dB/oct HPF<80Hz + LPF>6kHz (from {len(all_cab_mags)} cab IRs)")
 
     for comp_type in ("cab", "speaker", "mic", "position"):
         if comp_type not in components:

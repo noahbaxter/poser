@@ -2,11 +2,13 @@
 
 ## Up Next
 
-- [ ] `feature` **Backend-driven UI** — all component lists, parameter ranges, and labels come from C++ at init. No hardcoded data in JS. Mic groups (Vocal/Instrument/Kick/Condenser/Ribbon) with left/right arrows to page between groups.
-- [ ] `feature` **Curve viewer** — collapsible panel that slides out from the bottom of the plugin. Shows the composite EQ curve for the current selection. Click icon to toggle.
-- [ ] `feature` **Mic categorization in selector** — group mics by type so there aren't 16+ on one ring. Registry already has `group` field, needs UI support.
-- [ ] `chore` **Per-cab LPF from IR decomposition** — extract the absolute magnitude envelope per cab during IR decomposition instead of using the averaged shape. Each cab gets its own natural rolloff curve.
+- [x] `feature` **Backend-driven UI** — component lists come from C++ at init via evaluateJavascript. Done.
+- [x] `feature` **Mic categorization** — group buttons (Vocal/Instrument/Kick/Condenser/Ribbon). Done.
+- [ ] `feature` **Cab+Speaker grouping** — cab and speaker should be a single UI section. Pick a cab, pick a speaker. The cab HPF + speaker LPF combine as a toggleable bandpass filter. Offer "flat" options for both. Per-cab HPF and per-speaker LPF are already measured. Needs: UI redesign from 4 tabs to 3 (Mic, Cab+Speaker, Position), new combined filter in DSP, "flat cab" and "flat speaker" options.
+- [ ] `feature` **Write DSP/decomposition doc** — explain the signal model (IR = cab × speaker × mic × position), what the decomposition extracts, how character extraction works, how gain compensation works. Put in docs/dsp.md. This is getting complex enough to warrant a reference doc.
+- [ ] `feature` **Curve viewer** — collapsible panel from bottom of plugin showing composite EQ curve.
 - [ ] `feature` **More cabs** — expand beyond 4 cab configurations. Source additional IR data for cab/speaker filter parameters.
+- [ ] `idea` **Speaker size parameter** — shift the LPF point based on theoretical speaker diameter (10"/12"/15"). Physical model: bigger cone = lower rolloff.
 
 ## Inbox
 
