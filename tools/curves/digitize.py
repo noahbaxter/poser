@@ -249,200 +249,379 @@ def classify_palette(img, target_color):
     return weights
 
 
-# --- Curve extraction ---
+# --- Curve extraction (connected component approach) ---
 
-def _detect_watermark_mask(img_orig, left, right, top, bottom):
-    """Detect watermark region by finding columns with watermark-only palette entries.
+def _build_color_mask(img_orig, img_rgb, target_color, left, right, top, bottom):
+    """Build a binary mask of all pixels matching the target color.
 
-    The watermark uses unique yellow/brown palette entries that don't appear in
-    the curve or grid. Returns a set of (x, y) pixel positions.
+    Returns a 2D numpy array (height x width) where True = matches target color.
+    Uses palette classification for paletted images.
     """
-    if img_orig.mode != "P":
-        return set()
+    plot_w = right - left
+    plot_h = bottom - top
+    mask = np.zeros((plot_h, plot_w), dtype=bool)
 
-    pal = img_orig.getpalette()
-    n = len(pal) // 3
-    px = img_orig.load()
-
-    # Find palette entries that are clearly watermark (yellow/brown/olive tones)
-    wm_indices = set()
-    for i in range(n):
-        r, g, b = pal[i*3], pal[i*3+1], pal[i*3+2]
-        if r == g == b:
-            continue
-        # Watermark uses olive/brown/yellow-green tones
-        # and pale yellow highlights
-        is_olive = (r > 50 and g > 50 and b < r * 0.6 and abs(r - g) < 40)
-        is_pale_yellow = (r > 200 and g > 200 and b > 150 and b < g and r >= g - 10)
-        if is_olive or is_pale_yellow:
-            wm_indices.add(i)
-
-    if wm_indices:
-        pal_info = img_orig.getpalette()
-        wm_colors = [(i, (pal_info[i*3], pal_info[i*3+1], pal_info[i*3+2])) for i in wm_indices]
-        print(f"  Watermark palette entries: {', '.join(f'[{i}]({r},{g},{b})' for i,(r,g,b) in wm_colors)}")
-
-    mask = set()
-    for x in range(left + 1, right):
-        for y in range(top + 1, bottom):
-            if px[x, y] in wm_indices:
-                mask.add((x, y))
-
-    return mask
-
-
-def extract_curve(img_orig, img_rgb, target_color, left, right, top, bottom):
-    """Extract curve pixels by color, using palette when available.
-
-    Two-pass approach:
-    1. First pass: extract using only pure curve colors (high confidence)
-    2. Second pass: for columns with NO pure matches, try blend colors
-       (fills gaps where watermark occludes the curve)
-
-    Returns list of (x_pixel, y_avg) pairs.
-    """
-    # Detect regions to skip
-    # Legend has colored swatches + mic name text in top-left of plot area.
-    # Empirically extends to about x=left+215, y=top+75.
-    legend_right = left + 215
-    legend_bottom = top + 75
-    watermark = _detect_watermark_mask(img_orig, left, right, top, bottom)
-    print(f"  Watermark pixels detected: {len(watermark)}")
-
-    # Classify palette
     pal_weights = classify_palette(img_orig, target_color)
-    use_palette = pal_weights is not None
 
-    if use_palette:
-        pal = img_orig.getpalette()
-        # Split into pure curve vs blend entries
-        pure_indices = {}
-        blend_indices = {}
+    if pal_weights is not None:
+        # Palette mode: use classified indices
+        pure_indices = set()
         for i, w in pal_weights.items():
+            pal = img_orig.getpalette()
             r, g, b = pal[i*3], pal[i*3+1], pal[i*3+2]
             dist = color_dist((r, g, b), target_color)
             if dist < COLOR_THRESHOLD:
-                pure_indices[i] = w
-            else:
-                blend_indices[i] = w
-
-        print(f"  Pure curve entries: {len(pure_indices)}")
-        for i, w in sorted(pure_indices.items(), key=lambda x: -x[1]):
-            r, g, b = pal[i*3], pal[i*3+1], pal[i*3+2]
-            print(f"    [{i:2d}] ({r:3d},{g:3d},{b:3d}) w={w:.2f}")
-        print(f"  Blend entries (gap-fill only): {len(blend_indices)}")
-        for i, w in sorted(blend_indices.items(), key=lambda x: -x[1]):
-            r, g, b = pal[i*3], pal[i*3+1], pal[i*3+2]
-            print(f"    [{i:2d}] ({r:3d},{g:3d},{b:3d}) w={w:.2f}")
+                pure_indices.add(i)
 
         px = img_orig.load()
+        for x in range(left + 1, right - 1):
+            for y in range(top + 1, bottom - 1):
+                if px[x, y] in pure_indices:
+                    mask[y - top, x - left] = True
+
+        print(f"  Pure palette indices: {sorted(pure_indices)}")
     else:
+        # RGB mode: distance-based matching
         px = img_rgb.load()
-        pure_indices = None
-        blend_indices = None
+        for x in range(left + 1, right - 1):
+            for y in range(top + 1, bottom - 1):
+                if color_dist(px[x, y][:3], target_color) < COLOR_THRESHOLD:
+                    mask[y - top, x - left] = True
 
-    # Pass 1: pure curve colors only
-    pure_points = {}  # x -> (avg_y)
-    for x in range(left + 1, right):
-        matching_ys = []
-        matching_ws = []
+    total = int(np.sum(mask))
+    print(f"  Color mask: {total} pixels")
+    return mask
 
-        for y in range(top + 1, bottom):
-            # Skip legend area
-            if x < legend_right and y < legend_bottom:
+
+def _find_connected_components(mask):
+    """Find connected components in a binary mask using flood fill.
+
+    Uses 8-connectivity (diagonal pixels count as connected).
+    Returns list of components, each a set of (row, col) tuples.
+    """
+    visited = np.zeros_like(mask, dtype=bool)
+    components = []
+    rows, cols = mask.shape
+
+    for r in range(rows):
+        for c in range(cols):
+            if mask[r, c] and not visited[r, c]:
+                # BFS flood fill
+                component = set()
+                queue = [(r, c)]
+                visited[r, c] = True
+                while queue:
+                    cr, cc = queue.pop(0)
+                    component.add((cr, cc))
+                    # 8-connectivity neighbors
+                    for dr in [-1, 0, 1]:
+                        for dc in [-1, 0, 1]:
+                            if dr == 0 and dc == 0:
+                                continue
+                            nr, nc = cr + dr, cc + dc
+                            if 0 <= nr < rows and 0 <= nc < cols:
+                                if mask[nr, nc] and not visited[nr, nc]:
+                                    visited[nr, nc] = True
+                                    queue.append((nr, nc))
+                components.append(component)
+
+    return components
+
+
+def _component_x_span(component, left):
+    """Get the x-pixel span (min_x, max_x) of a component in plot coordinates."""
+    cols = [c for _, c in component]
+    return min(cols) + left, max(cols) + left
+
+
+def _cluster_ys(ys, gap=8):
+    """Cluster y values into groups separated by gaps.
+
+    Returns list of clusters, each a list of y values.
+    A gap of 8px (~2.5dB) separates distinct lines.
+    """
+    if not ys:
+        return []
+    ys_sorted = sorted(ys)
+    clusters = [[ys_sorted[0]]]
+    for y in ys_sorted[1:]:
+        if y - clusters[-1][-1] <= gap:
+            clusters[-1].append(y)
+        else:
+            clusters.append([y])
+    return clusters
+
+
+def _trace_component(component, left, top):
+    """Trace a connected component into one or more curves using multi-object tracking.
+
+    Scans every column for y-clusters and tracks each line independently.
+    New lines start when an unmatched cluster appears. Lines survive gaps
+    (dashed lines, gridline crossings). Multiple solid or dashed lines
+    in the same component each get their own path.
+
+    Returns list of curves, each a list of (x_pixel, y_avg) pairs.
+    Sorted by x-span (widest first).
+    """
+    # Group pixels by column
+    col_ys = {}
+    for r, c in component:
+        x = c + left
+        y = r + top
+        col_ys.setdefault(x, []).append(y)
+
+    x_values = sorted(col_ys.keys())
+    if not x_values:
+        return []
+
+    # Build cluster centers per column
+    col_centers = {}
+    for x in x_values:
+        clusters = _cluster_ys(col_ys[x])
+        col_centers[x] = [sum(c) / len(c) for c in clusters]
+
+    # Multi-object tracking across columns
+    # Each active path: [last_y, points_list, gap_count]
+    active = []
+    MAX_GAP = 12     # survive this many empty columns (handles dashes, gridlines)
+    MATCH_DIST = 20   # max y-distance to match a cluster to a path
+
+    for x in x_values:
+        centers = col_centers[x]
+
+        # Build candidate matches: (distance, center_idx, path_idx)
+        candidates = []
+        for ci, cy in enumerate(centers):
+            for pi, (last_y, _, _) in enumerate(active):
+                candidates.append((abs(cy - last_y), ci, pi))
+        candidates.sort()
+
+        matched_paths = set()
+        matched_centers = set()
+
+        # Greedy closest-first matching
+        for dist, ci, pi in candidates:
+            if ci in matched_centers or pi in matched_paths:
                 continue
-            # Skip watermark pixels for pure detection
-            # (pure curve colors shouldn't appear in watermark)
+            if dist <= MATCH_DIST:
+                last_y, pts, _ = active[pi]
+                pts.append((x, centers[ci]))
+                active[pi] = (centers[ci], pts, 0)
+                matched_paths.add(pi)
+                matched_centers.add(ci)
 
-            if use_palette:
-                idx = px[x, y]
-                if idx in pure_indices:
-                    matching_ys.append(y)
-                    matching_ws.append(pure_indices[idx])
-            else:
-                dist = color_dist(px[x, y][:3], target_color)
-                if dist < COLOR_THRESHOLD:
-                    matching_ys.append(y)
-                    matching_ws.append(1.0 - dist / COLOR_THRESHOLD)
+        # Unmatched centers → new paths (a line just appeared)
+        for ci, cy in enumerate(centers):
+            if ci not in matched_centers:
+                active.append((cy, [(x, cy)], 0))
+
+        # Unmatched paths → increment gap counter
+        for pi in range(len(active)):
+            if pi not in matched_paths:
+                last_y, pts, gap = active[pi]
+                active[pi] = (last_y, pts, gap + 1)
+
+        # Remove dead paths (gap too large) — move to finished
+        # (keep them in active but skip matching once dead)
+
+    # Collect all paths with enough points
+    min_points = max(20, len(x_values) * 0.05)  # at least 5% of columns
+    paths = [pts for _, pts, _ in active if len(pts) >= min_points]
+
+    # Deduplicate near-identical paths
+    paths.sort(key=lambda p: -(p[-1][0] - p[0][0]) if len(p) > 1 else 0)
+    unique = []
+    for path in paths:
+        is_dup = False
+        for existing in unique:
+            # Sample both at ~10 evenly spaced x positions
+            ex_dict = dict(existing)
+            diffs = []
+            for x, y in path[::max(1, len(path) // 10)]:
+                if x in ex_dict:
+                    diffs.append(abs(y - ex_dict[x]))
+            if len(diffs) >= 3 and sum(diffs) / len(diffs) < 4:
+                is_dup = True
+                break
+        if not is_dup:
+            unique.append(path)
+
+    return unique if unique else [[(x, sum(col_ys[x]) / len(col_ys[x])) for x in x_values]]
+
+
+def extract_curve(img_orig, img_rgb, target_color, left, right, top, bottom):
+    """Extract curve pixels and trace all distinct lines using multi-object tracking.
+
+    Skips connected component analysis entirely — instead builds per-column
+    y-clusters directly from the color mask and tracks each line independently.
+    This correctly separates solid lines, dashed lines, and multi-line charts
+    even when they touch or cross.
+
+    Returns list of paths (each a list of (x_pixel, y_avg) pairs), sorted
+    by span (widest first).
+    """
+    # Build color mask
+    mask = _build_color_mask(img_orig, img_rgb, target_color, left, right, top, bottom)
+
+    # Legend zone: skip colored pixels in the top-left area (swatch + mic name text)
+    legend_max_x = left + 300
+    legend_max_y = top + 80
+
+    # Build per-column y-clusters directly from the mask (gap=5 for fine separation)
+    col_centers = {}
+    plot_h, plot_w = mask.shape
+    for c in range(plot_w):
+        x = c + left
+        ys = []
+        for r in range(plot_h):
+            y = r + top
+            if mask[r, c]:
+                # Skip legend zone
+                if x < legend_max_x and y < legend_max_y:
+                    continue
+                ys.append(y)
+        if ys:
+            clusters = _cluster_ys(ys, gap=5)
+            col_centers[x] = [sum(cl) / len(cl) for cl in clusters]
+
+    x_values = sorted(col_centers.keys())
+    if not x_values:
+        print("  WARNING: No curve pixels found")
+        return []
+
+    # Count max simultaneous lines
+    max_clusters = max(len(col_centers[x]) for x in x_values)
+    print(f"  Columns with data: {len(x_values)}, max simultaneous lines: {max_clusters}")
+
+    # Multi-object tracking across columns
+    active = []  # list of [last_y, points_list, gap_count]
+    MATCH_DIST = 15
+    MAX_GAP = 15  # survive gaps (dashes, gridline crossings)
+
+    for x in x_values:
+        centers = col_centers[x]
+
+        # Build candidate matches: (distance, center_idx, path_idx)
+        candidates = []
+        for ci, cy in enumerate(centers):
+            for pi, (last_y, _, gap) in enumerate(active):
+                if gap > MAX_GAP:
+                    continue  # path is dead
+                candidates.append((abs(cy - last_y), ci, pi))
+        candidates.sort()
+
+        matched_paths = set()
+        matched_centers = set()
+
+        for dist, ci, pi in candidates:
+            if ci in matched_centers or pi in matched_paths:
+                continue
+            if dist <= MATCH_DIST:
+                _, pts, _ = active[pi]
+                pts.append((x, centers[ci]))
+                active[pi] = (centers[ci], pts, 0)
+                matched_paths.add(pi)
+                matched_centers.add(ci)
+
+        # Unmatched centers → new paths
+        for ci, cy in enumerate(centers):
+            if ci not in matched_centers:
+                active.append((cy, [(x, cy)], 0))
+
+        # Increment gap for unmatched active paths
+        for pi in range(len(active)):
+            if pi not in matched_paths:
+                last_y, pts, gap = active[pi]
+                active[pi] = (last_y, pts, gap + 1)
+
+    # Collect paths, filter short ones (legend text, labels, etc.)
+    plot_width = right - left
+    min_span = plot_width * 0.20  # must span at least 20% of plot width
+    paths = []
+    for _, pts, _ in active:
+        if len(pts) < 20:
+            continue
+        span = pts[-1][0] - pts[0][0]
+        if span >= min_span:
+            paths.append(pts)
+
+    # Deduplicate near-identical paths
+    paths.sort(key=lambda p: -(p[-1][0] - p[0][0]))
+    unique = []
+    for path in paths:
+        is_dup = False
+        for existing in unique:
+            ex_dict = dict(existing)
+            diffs = []
+            for x, y in path[::max(1, len(path) // 10)]:
+                if x in ex_dict:
+                    diffs.append(abs(y - ex_dict[x]))
+            if len(diffs) >= 3 and sum(diffs) / len(diffs) < 4:
+                is_dup = True
+                break
+        if not is_dup:
+            unique.append(path)
+
+    print(f"  Tracked {len(unique)} distinct path(s)")
+    for i, path in enumerate(unique):
+        span = path[-1][0] - path[0][0]
+        print(f"    Path {i}: {len(path)} pts, span={span}px")
+
+    # Extend each path with blend colors through watermark region
+    pal_weights = classify_palette(img_orig, target_color)
+    blend_indices = {}
+    if pal_weights is not None and img_orig.mode == "P":
+        pal = img_orig.getpalette()
+        for i, w in pal_weights.items():
+            r, g, b = pal[i*3], pal[i*3+1], pal[i*3+2]
+            if color_dist((r, g, b), target_color) >= COLOR_THRESHOLD:
+                blend_indices[i] = w
+
+    extended = []
+    for path in unique:
+        if blend_indices and path:
+            path = _extend_with_blends(path, img_orig, blend_indices, top, bottom, right)
+        extended.append(path)
+
+    for i, path in enumerate(extended):
+        print(f"  Path {i} final: {len(path)} points")
+
+    return extended
+
+
+def _extend_with_blends(points, img_orig, blend_indices, top, bottom, right):
+    """Extend a single path using blend-colored pixels (watermark fill)."""
+    px = img_orig.load()
+    point_dict = {x: y for x, y in points}
+    last_y = point_dict[max(point_dict.keys())]
+    blend_count = 0
+    consecutive_empty = 0
+
+    for x in range(min(point_dict.keys()), right):
+        if x in point_dict:
+            last_y = point_dict[x]
+            consecutive_empty = 0
+            continue
+        if consecutive_empty > 15:
+            break
+
+        matching_ys = []
+        for y in range(top + 1, bottom - 1):
+            if px[x, y] in blend_indices and abs(y - last_y) <= 25:
+                matching_ys.append(y)
 
         if matching_ys:
-            pure_points[x] = _best_cluster_y(matching_ys, matching_ws)
+            avg_y = sum(matching_ys) / len(matching_ys)
+            point_dict[x] = avg_y
+            last_y = avg_y
+            consecutive_empty = 0
+            blend_count += 1
+        else:
+            consecutive_empty += 1
 
-    print(f"  Pass 1 (pure): {len(pure_points)} columns")
-
-    # Pass 2: fill gaps using blend colors (watermark-occluded regions)
-    # Only fill between pure points and extend a limited distance past the last one.
-    # Don't extend past where the curve actually ends.
-    blend_points = {}
-    if use_palette and blend_indices and pure_points:
-        x_min = min(pure_points.keys())
-        x_max = max(pure_points.keys())
-        # Allow blend to extend a bit past last pure point, but not forever.
-        # Use a trailing guide: track the last known y position and stop when
-        # we go too many consecutive columns without a blend match.
-        max_gap = 15  # stop after 15 consecutive empty columns
-        consecutive_empty = 0
-        last_y = pure_points[x_max]
-
-        for x in range(x_min, right):
-            if x in pure_points:
-                last_y = pure_points[x]
-                consecutive_empty = 0
-                continue
-
-            if consecutive_empty > max_gap:
-                break
-
-            matching_ys = []
-            matching_ws = []
-            for y in range(top + 1, bottom):
-                idx = px[x, y]
-                if idx in blend_indices:
-                    if abs(y - last_y) > 25:
-                        continue
-                    matching_ys.append(y)
-                    matching_ws.append(blend_indices[idx])
-
-            if matching_ys:
-                y_val = _best_cluster_y(matching_ys, matching_ws)
-                blend_points[x] = y_val
-                last_y = y_val
-                consecutive_empty = 0
-            else:
-                consecutive_empty += 1
-
-    print(f"  Pass 2 (blend gap-fill): {len(blend_points)} columns")
-
-    # Merge: pure takes precedence
-    all_points = {**blend_points, **pure_points}
-    points = sorted(all_points.items())
-    return [(x, y) for x, y in points]
-
-
-def _best_cluster_y(ys, weights):
-    """Weighted average of the tightest y-cluster (handles watermark noise)."""
-    if len(ys) <= 3:
-        tw = sum(weights)
-        return sum(y * w for y, w in zip(ys, weights)) / tw
-
-    pairs = sorted(zip(ys, weights))
-    sy = [p[0] for p in pairs]
-    sw = [p[1] for p in pairs]
-
-    # Find tightest cluster within 6px (~2dB)
-    best_i, best_j, best_count = 0, len(sy) - 1, 0
-    for i in range(len(sy)):
-        for j in range(i, len(sy)):
-            if sy[j] - sy[i] > 6:
-                break
-            count = j - i + 1
-            if count > best_count:
-                best_i, best_j, best_count = i, j, count
-
-    cy = sy[best_i:best_j + 1]
-    cw = sw[best_i:best_j + 1]
-    tw = sum(cw)
-    return sum(y * w for y, w in zip(cy, cw)) / tw
+    if blend_count:
+        print(f"    +{blend_count} blend columns")
+    return sorted(point_dict.items())
 
 
 # --- Data conversion ---
@@ -501,7 +680,7 @@ def resample_log(data, num_points=256):
 # --- Comparison plot ---
 
 def make_comparison_plot(source_img_path, curves, out_path, mic_ids):
-    """Generate side-by-side: original image (top) + digitized curves (bottom)."""
+    """Generate side-by-side: original image (top) + all digitized curves (bottom)."""
     src = Image.open(source_img_path)
 
     fig, (ax_orig, ax_dig) = plt.subplots(2, 1, figsize=(12, 8),
@@ -512,25 +691,31 @@ def make_comparison_plot(source_img_path, curves, out_path, mic_ids):
     ax_orig.set_title("Original (RecordingHacks)", fontsize=11)
     ax_orig.axis("off")
 
-    # Bottom: our digitized curves
-    colors = ["#f69410", "#9410a0"]  # orange, purple
-    labels = []
+    # Bottom: all digitized curves
+    base_colors = ["#f69410", "#9410a0"]  # orange, purple
+    line_styles = ["-", "--", ":", "-."]
+
     for i, (key, label_prefix) in enumerate([("first", mic_ids[0]), ("second", mic_ids[1])]):
         if key not in curves:
             continue
-        pts = curves[key]["data"]
-        freqs = [p["hz"] for p in pts]
-        dbs = [p["db"] for p in pts]
-        ax_dig.semilogx(freqs, dbs, color=colors[i], linewidth=1.5,
-                        label=f"{label_prefix} ({len(pts)} pts)")
-        labels.append(label_prefix)
+        info = curves[key]
+        for j, curve in enumerate(info["curves"]):
+            pts = curve["data"]
+            freqs = [p["hz"] for p in pts]
+            dbs = [p["db"] for p in pts]
+            style = line_styles[j % len(line_styles)]
+            alpha = 1.0 if j == 0 else 0.6
+            lw = 1.5 if j == 0 else 1.0
+            label = f"{label_prefix} #{j} ({len(pts)} pts)"
+            ax_dig.semilogx(freqs, dbs, color=base_colors[i], linewidth=lw,
+                            linestyle=style, alpha=alpha, label=label)
 
     ax_dig.set_xlim(20, 20000)
     ax_dig.set_ylim(-20, 20)
     ax_dig.set_xlabel("Frequency (Hz)")
     ax_dig.set_ylabel("dB")
     ax_dig.set_title("Digitized", fontsize=11)
-    ax_dig.legend(loc="upper left")
+    ax_dig.legend(loc="upper left", fontsize=8)
     ax_dig.grid(True, which="both", alpha=0.3)
     ax_dig.set_xticks([20, 100, 1000, 10000, 20000])
     ax_dig.set_xticklabels(["20Hz", "100Hz", "1kHz", "10kHz", "20kHz"])
@@ -598,22 +783,22 @@ def digitize(image_path, extract="both"):
 
     for key, color in curve_configs:
         print(f"\nExtracting {key} curve (target RGB{color})...")
-        raw = extract_curve(img_orig, img_rgb, color, left, right, top, bottom)
-        print(f"  Raw pixel columns: {len(raw)}")
+        all_paths = extract_curve(img_orig, img_rgb, color, left, right, top, bottom)
 
-        data = pixels_to_data(raw, A, B, top, bottom)
-        data = filter_continuity(data)
-        print(f"  After filtering: {len(data)} points")
-
-        if data:
-            freqs = [d[0] for d in data]
-            dbs = [d[1] for d in data]
-            print(f"  Coverage: {min(freqs):.0f}Hz - {max(freqs):.0f}Hz")
-            print(f"  dB range: {min(dbs):.1f} to {max(dbs):.1f}")
+        # Convert each path to frequency/dB data
+        curves = []
+        for i, raw_path in enumerate(all_paths):
+            data = pixels_to_data(raw_path, A, B, top, bottom)
+            data = filter_continuity(data)
+            if data:
+                freqs = [d[0] for d in data]
+                dbs = [d[1] for d in data]
+                print(f"  Curve {i}: {len(data)} pts, {min(freqs):.0f}-{max(freqs):.0f}Hz, {min(dbs):.1f} to {max(dbs):.1f}dB")
+                curves.append(data)
 
         results[key] = {
-            "raw_points": len(raw),
-            "data": data,
+            "raw_paths": len(all_paths),
+            "curves": curves,
         }
 
     return results
@@ -636,7 +821,7 @@ def main():
         extract = "second"
 
     # Paths
-    repo_root = Path(__file__).resolve().parent.parent
+    repo_root = Path(__file__).resolve().parent.parent.parent
     data_dir = repo_root / "data" / "curves" / "digitized"
     data_dir.mkdir(parents=True, exist_ok=True)
     tmp_dir = Path("/tmp/poser")
@@ -652,7 +837,7 @@ def main():
     # Digitize
     results = digitize(image_path, extract=extract)
 
-    # Build JSON output
+    # Build JSON output — all curves, not just one
     output = {
         "source": f"https://recordinghacks.com/graphs2.php/{args.id1}-{args.id2}",
         "mic_ids": [args.id1, args.id2],
@@ -660,10 +845,16 @@ def main():
     }
     for key in ("first", "second"):
         if key in results:
+            curve_list = []
+            for i, data in enumerate(results[key]["curves"]):
+                curve_list.append({
+                    "index": i,
+                    "points": len(data),
+                    "data": [{"hz": hz, "db": db} for hz, db in data],
+                })
             output["curves"][key] = {
-                "raw_pixel_count": results[key]["raw_points"],
-                "points": len(results[key]["data"]),
-                "data": [{"hz": hz, "db": db} for hz, db in results[key]["data"]],
+                "num_curves": len(curve_list),
+                "curves": curve_list,
             }
 
     # Write JSON (data goes in repo)
@@ -674,12 +865,14 @@ def main():
 
     for key, label in [("first", "First"), ("second", "Second")]:
         if key in output["curves"]:
-            c = output["curves"][key]
-            freqs = [p["hz"] for p in c["data"]]
-            dbs = [p["db"] for p in c["data"]]
-            print(f"  {label}: {c['points']} pts, "
-                  f"{min(freqs):.0f}-{max(freqs):.0f}Hz, "
-                  f"{min(dbs):.1f} to {max(dbs):.1f} dB")
+            info = output["curves"][key]
+            print(f"  {label}: {info['num_curves']} curve(s)")
+            for c in info["curves"]:
+                freqs = [p["hz"] for p in c["data"]]
+                dbs = [p["db"] for p in c["data"]]
+                print(f"    [{c['index']}] {c['points']} pts, "
+                      f"{min(freqs):.0f}-{max(freqs):.0f}Hz, "
+                      f"{min(dbs):.1f} to {max(dbs):.1f} dB")
 
     # Comparison plot (ephemeral, goes to /tmp)
     plot_path = tmp_dir / f"{args.id1}-{args.id2}_comparison.png"
