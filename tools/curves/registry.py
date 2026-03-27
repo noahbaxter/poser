@@ -12,27 +12,27 @@ To remove a mic:
 
 # slug → mic info
 # - name:    Display name shown in the plugin UI
-# - group:   Category for UI grouping
+# - groups:  List of UI groups this mic belongs to (can appear in multiple)
 # - rh_id:   RecordingHacks numeric ID (for downloading source graph)
 # - atk_csv: ATK lab measurement CSV (optional, takes priority over digitized)
 MICS = {
-    "sm57":       {"name": "SM57",       "group": "Instrument", "rh_id": "0006", "atk_csv": "shure_sm57.csv"},
-    "sm58":       {"name": "SM58",       "group": "Vocal",      "rh_id": "0253", "atk_csv": "shure_sm58.csv"},
-    "sm7b":       {"name": "SM7B",       "group": "Vocal",      "rh_id": "0255", "atk_csv": "shure_sm7b.csv"},
-    "c414":       {"name": "C414",       "group": "Condenser",  "rh_id": "0307", "atk_csv": "akg_c414_xlii.csv"},
-    "u87":        {"name": "U87",        "group": "Condenser",  "rh_id": "0860", "atk_csv": "neumann_u87.csv"},
-    "beta-52a":   {"name": "Beta 52A",   "group": "Kick/Bass",  "rh_id": "0219"},
-    "c451b":      {"name": "C451 B",     "group": "Condenser",  "rh_id": "0323"},
-    "d112":       {"name": "D112",       "group": "Kick/Bass",  "rh_id": "0335"},
-    "re20":       {"name": "RE20",       "group": "Vocal",      "rh_id": "0417"},
-    "r84":        {"name": "R84",        "group": "Ribbon",     "rh_id": "0429"},
-    "md421":      {"name": "MD421",      "group": "Instrument", "rh_id": "0552"},
-    "d6":         {"name": "D6",         "group": "Kick/Bass",  "rh_id": "0567"},
-    "coles-4038": {"name": "Coles 4038", "group": "Ribbon",     "rh_id": "0701"},
-    "m88-tg":     {"name": "M88 TG",     "group": "Instrument", "rh_id": "1009"},
-    "km184":      {"name": "KM184",      "group": "Condenser",  "rh_id": "1091"},
-    "e906":       {"name": "e906",       "group": "Instrument", "rh_id": "1184"},
+    "sm57":       {"name": "SM57",       "groups": ["Instrument"],          "rh_id": "0006", "atk_csv": "shure_sm57.csv"},
+    "sm58":       {"name": "SM58",       "groups": ["Vocal"],               "rh_id": "0253", "atk_csv": "shure_sm58.csv"},
+    "sm7b":       {"name": "SM7B",       "groups": ["Vocal"],               "rh_id": "0255", "atk_csv": "shure_sm7b.csv"},
+    "c414":       {"name": "C414",       "groups": ["Vocal"],               "rh_id": "0307", "atk_csv": "akg_c414_xlii.csv"},
+    "u87":        {"name": "U87",        "groups": ["Vocal"],               "rh_id": "0860", "atk_csv": "neumann_u87.csv"},
+    "beta-52a":   {"name": "Beta 52A",   "groups": ["Drum"],                "rh_id": "0219"},
+    "c451b":      {"name": "C451 B",     "groups": ["Instrument"],          "rh_id": "0323"},
+    "d112":       {"name": "D112",       "groups": ["Drum"],                "rh_id": "0335"},
+    "re20":       {"name": "RE20",       "groups": ["Vocal"],               "rh_id": "0417"},
+    "r84":        {"name": "R84",        "groups": ["Instrument"],          "rh_id": "0429"},
+    "md421":      {"name": "MD421",      "groups": ["Drum", "Instrument"],  "rh_id": "0552"},
+    "d6":         {"name": "D6",         "groups": ["Drum"],                "rh_id": "0567"},
+    "coles-4038": {"name": "Coles 4038", "groups": ["Instrument"],          "rh_id": "0701"},
+    "m88-tg":     {"name": "M88 TG",     "groups": ["Instrument"],          "rh_id": "1009"},
+    "km184":      {"name": "KM184",      "groups": ["Instrument"],          "rh_id": "1091"},
+    "e906":       {"name": "e906",       "groups": ["Instrument"],          "rh_id": "1184"},
 }
 
 # Group display order
-MIC_GROUPS = ["Vocal", "Instrument", "Kick/Bass", "Condenser", "Ribbon"]
+MIC_GROUPS = ["Drum", "Vocal", "Instrument"]

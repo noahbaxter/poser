@@ -33,6 +33,75 @@ function buildUI(config) {
 
     for (const id of componentIds) {
         const comp = config.components[id];
+
+        // --- Cabinet: combined cab + speaker ---
+        if (comp.type === 'cabinet') {
+            state['cab'] = { enabled: true };
+            state['speaker'] = { enabled: true };
+
+            // Tab
+            const tab = document.createElement('div');
+            tab.className = 'tab';
+            tab.dataset.tab = id;
+            tab.textContent = comp.label;
+            tabRow.appendChild(tab);
+
+            // Empty blend slot (blend knobs are inside the panel)
+            const blendSpacer = document.createElement('div');
+            blendSpacer.className = 'blend-slot';
+            blendRow.appendChild(blendSpacer);
+
+            // Panel with two columns
+            const panel = document.createElement('div');
+            panel.className = 'selector-panel';
+            panel.id = `panel-${id}`;
+            selectorArea.appendChild(panel);
+
+            const cabinetPanel = document.createElement('div');
+            cabinetPanel.className = 'cabinet-panel';
+            panel.appendChild(cabinetPanel);
+
+            // Build each sub-column (cab and speaker)
+            for (const subId of ['cab', 'speaker']) {
+                const sub = comp[subId];
+                const col = document.createElement('div');
+                col.className = 'cabinet-col';
+
+                const header = document.createElement('div');
+                header.className = 'cabinet-col-header';
+                const label = document.createElement('div');
+                label.className = 'cabinet-col-label';
+                label.textContent = sub.label;
+                header.appendChild(label);
+
+                const blendSlot = document.createElement('div');
+                blendSlot.className = 'blend-slot';
+                header.appendChild(blendSlot);
+                blendKnobs[subId] = new Knob(blendSlot, {
+                    param: sub.blendId,
+                    min: 0, max: 100, step: 1,
+                    defaultValue: 100,
+                    className: 'blend-knob',
+                    formatValue: (v) => `${v}%`,
+                    toNorm: (v) => v / 100,
+                    fromNorm: (n) => n * 100,
+                });
+
+                col.appendChild(header);
+
+                selectors[subId] = new Selector(col, {
+                    options: sub.options,
+                    paramId: sub.paramId,
+                    small: true,
+                    onChange: (index, name) => { state[subId].selected = index; },
+                });
+
+                cabinetPanel.appendChild(col);
+            }
+            continue;
+        }
+
+        // --- Normal component (mic, position) ---
         state[id] = { enabled: true };
 
         // Tab
@@ -103,16 +172,23 @@ function buildUI(config) {
     // ---- Shift+click to toggle enable/disable ----
 
     function toggleComponent(id) {
-        state[id].enabled = !state[id].enabled;
-        const knob = blendKnobs[id];
-        knob.setDisabled(!state[id].enabled);
+        // Cabinet tab toggles both cab and speaker
+        const subIds = (id === 'cabinet') ? ['cab', 'speaker'] : [id];
+        for (const subId of subIds) {
+            if (!state[subId]) continue;
+            state[subId].enabled = !state[subId].enabled;
+            const knob = blendKnobs[subId];
+            if (!knob) continue;
+            knob.setDisabled(!state[subId].enabled);
 
-        if (!state[id].enabled) {
-            state[id]._savedBlend = knob.getValue();
-            setParameterNormalized(config.components[id].blendId, 0);
-        } else {
-            const restore = state[id]._savedBlend ?? 100;
-            setParameterNormalized(config.components[id].blendId, restore / 100);
+            const comp = config.components.cabinet?.[subId] || config.components[subId];
+            if (!state[subId].enabled) {
+                state[subId]._savedBlend = knob.getValue();
+                setParameterNormalized(comp.blendId, 0);
+            } else {
+                const restore = state[subId]._savedBlend ?? 100;
+                setParameterNormalized(comp.blendId, restore / 100);
+            }
         }
     }
 
@@ -177,10 +253,17 @@ function buildUI(config) {
         fromNorm: (n) => n,
     });
 
-    // ---- Cab LPF toggle ----
+    // ---- Cab filter toggle ----
 
-    new Toggle(document.getElementById('cab-lpf-slot'), {
-        param: 'cab_lpf',
+    new Toggle(document.getElementById('cab-filter-slot'), {
+        param: 'cab_filter',
+        label: 'ON',
+    });
+
+    // ---- Gain comp toggle ----
+
+    new Toggle(document.getElementById('gain-comp-slot'), {
+        param: 'gain_comp',
         label: 'ON',
     });
 }

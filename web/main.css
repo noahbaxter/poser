@@ -151,8 +151,8 @@ html, body {
 
 .selector-wrap {
     position: relative;
-    width: 380px;
-    height: 380px;
+    width: 340px;
+    height: 340px;
 }
 
 .selector-ring {
@@ -186,8 +186,8 @@ html, body {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 160px;
-    height: 160px;
+    width: 140px;
+    height: 140px;
     background: #000;
     border-radius: 50%;
     cursor: grab;
@@ -210,13 +210,119 @@ html, body {
     border-radius: 50%;
 }
 
+/* --- Small selector (cabinet sub-selectors) --- */
+
+.selector-wrap.small {
+    width: 100%;
+    height: 100%;
+    max-width: 230px;
+}
+
+.selector-wrap.small .selector-ring {
+    position: absolute;
+    inset: 0;
+}
+
+.selector-wrap.small .selector-knob-center {
+    width: 80px;
+    height: 80px;
+}
+
+.selector-wrap.small .selector-indicator {
+    top: 5px;
+    width: 10px;
+    height: 10px;
+}
+
+.selector-wrap.small .selector-option {
+    font-size: 14px;
+}
+
+.selector-wrap.small .selector-option.active {
+    font-size: 16px;
+}
+
+/* --- Cabinet panel (dual selector) --- */
+
+.cabinet-panel {
+    display: flex;
+    width: 100%;
+    height: 100%;
+}
+
+.cabinet-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px 0;
+    gap: 4px;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.cabinet-col .selector-wrap {
+    flex: 1;
+    min-height: 0;
+}
+
+.cabinet-col-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cabinet-col-label {
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    color: #bbb;
+    text-transform: uppercase;
+}
+
+/* --- Compact selector (vertical list) --- */
+
+.selector-wrap.compact {
+    width: auto;
+    height: auto;
+}
+
+.selector-wrap.compact .selector-ring {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.selector-wrap.compact .selector-option {
+    position: relative;
+    font-size: 18px;
+    padding: 3px 12px;
+    border-radius: 4px;
+}
+
+.selector-wrap.compact .selector-option.active {
+    font-size: 20px;
+    background: #000;
+    color: #fff;
+}
+
+.selector-wrap.compact .selector-option:hover {
+    color: #555;
+}
+
+.selector-wrap.compact .selector-option.active:hover {
+    color: #fff;
+}
+
 /* --- Bottom row --- */
 
 .bottom-row {
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 40px;
+    gap: 16px;
     padding-top: 8px;
     border-top: 1px solid #eee;
     position: relative;
@@ -285,14 +391,14 @@ html, body {
 
 /* Bigger push knob */
 .push-knob, .push-group .master-knob {
-    width: 64px;
-    height: 64px;
+    width: 56px;
+    height: 56px;
 }
 
 .push-knob .knob-indicator, .push-group .master-knob .knob-indicator {
-    top: 7px;
-    width: 9px;
-    height: 9px;
+    top: 6px;
+    width: 8px;
+    height: 8px;
 }
 
 /* --- Selector group buttons --- */
@@ -302,6 +408,8 @@ html, body {
     justify-content: center;
     gap: 6px;
     margin-bottom: 4px;
+    position: relative;
+    z-index: 5;
 }
 
 .selector-group-btn {

@@ -4,11 +4,11 @@ Full spec in memory: `project_ui_redesign.md`
 
 ## Phase 1 — Data Layer (no UI)
 
-- [ ] **1.1** Multi-group mics: registry.py `group` → `groups` list. Update compile.py
+- [x] **1.1** Multi-group mics: registry.py `group` → `groups` list. Update compile.py
   to handle multi-group membership (mic appears in multiple group index arrays).
-  3 groups: Drum, Vocal, Instrument. Noah to finalize assignments.
-- [ ] **1.2** Update param defaults in PluginProcessor.cpp:
-  - mic_select default = SM57 index (currently alphabetically sorted, SM57 = index 11)
+  3 groups: Drum, Vocal, Instrument.
+- [x] **1.2** Update param defaults in PluginProcessor.cpp:
+  - mic_select default = SM57 index 11
   - cab_blend, speaker_blend, position_blend defaults = 0.0 (OFF)
   - cab_select, speaker_select defaults = 0 (Flat)
   - position_select default = 0 (center)

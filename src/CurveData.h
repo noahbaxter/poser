@@ -2734,19 +2734,15 @@ struct MicGroup {
     int count;
 };
 
-static constexpr int kMicGroup_Vocal_indices[] = { 10, 12, 13 };
-static constexpr int kMicGroup_Instrument_indices[] = { 7, 8, 11, 15 };
-static constexpr int kMicGroup_Kick_Bass_indices[] = { 0, 4, 5 };
-static constexpr int kMicGroup_Condenser_indices[] = { 1, 2, 6, 14 };
-static constexpr int kMicGroup_Ribbon_indices[] = { 3, 9 };
+static constexpr int kMicGroup_Drum_indices[] = { 0, 4, 5, 8 };
+static constexpr int kMicGroup_Vocal_indices[] = { 1, 10, 12, 13, 14 };
+static constexpr int kMicGroup_Instrument_indices[] = { 2, 3, 6, 7, 8, 9, 11, 15 };
 
 static constexpr MicGroup kMicGroups[] = {
-    {"Vocal", kMicGroup_Vocal_indices, 3},
-    {"Instrument", kMicGroup_Instrument_indices, 4},
-    {"Kick/Bass", kMicGroup_Kick_Bass_indices, 3},
-    {"Condenser", kMicGroup_Condenser_indices, 4},
-    {"Ribbon", kMicGroup_Ribbon_indices, 2}
+    {"Drum", kMicGroup_Drum_indices, 4},
+    {"Vocal", kMicGroup_Vocal_indices, 5},
+    {"Instrument", kMicGroup_Instrument_indices, 8}
 };
-static constexpr int kNumMicGroups = 5;
+static constexpr int kNumMicGroups = 3;
 
 } // namespace CurveData

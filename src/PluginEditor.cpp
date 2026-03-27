@@ -24,7 +24,8 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       curveLowCutRelay{"curve_low_cut"},
       curveHighCutRelay{"curve_high_cut"},
       curveModeRelay{"curve_mode"},
-      cabLpfRelay{"cab_lpf"},
+      cabFilterRelay{"cab_filter"},
+      gainCompRelay{"gain_comp"},
       webView{
           juce::WebBrowserComponent::Options{}
               .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
@@ -48,7 +49,8 @@ PoserEditor::PoserEditor(PoserProcessor& p)
               .withOptionsFrom(curveLowCutRelay)
               .withOptionsFrom(curveHighCutRelay)
               .withOptionsFrom(curveModeRelay)
-              .withOptionsFrom(cabLpfRelay)
+              .withOptionsFrom(cabFilterRelay)
+              .withOptionsFrom(gainCompRelay)
       },
       micSelectAttach{*audioProcessor.getAPVTS().getParameter("mic_select"), micSelectRelay, nullptr},
       cabSelectAttach{*audioProcessor.getAPVTS().getParameter("cab_select"), cabSelectRelay, nullptr},
@@ -63,14 +65,15 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       curveLowCutAttach{*audioProcessor.getAPVTS().getParameter("curve_low_cut"), curveLowCutRelay, nullptr},
       curveHighCutAttach{*audioProcessor.getAPVTS().getParameter("curve_high_cut"), curveHighCutRelay, nullptr},
       curveModeAttach{*audioProcessor.getAPVTS().getParameter("curve_mode"), curveModeRelay, nullptr},
-      cabLpfAttach{*audioProcessor.getAPVTS().getParameter("cab_lpf"), cabLpfRelay, nullptr}
+      cabFilterAttach{*audioProcessor.getAPVTS().getParameter("cab_filter"), cabFilterRelay, nullptr},
+      gainCompAttach{*audioProcessor.getAPVTS().getParameter("gain_comp"), gainCompRelay, nullptr}
 {
     addAndMakeVisible(webView);
     webView.setWantsKeyboardFocus(false);
     webView.setOpaque(false);
 
     setResizable(false, false);
-    setSize(440, 480);
+    setSize(500, 520);
 
     juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<PoserEditor>(this)]() {
         if (safeThis != nullptr)
@@ -131,10 +134,19 @@ void PoserEditor::pushInitData()
 
     comps->setProperty("mic", makeComp("MIC", "mic_select", "mic_blend",
         buildOptions(CurveData::kMics, CurveData::kNumMics)));
-    comps->setProperty("cab", makeComp("CAB", "cab_select", "cab_blend",
-        buildOptions(CurveData::kCabs, CurveData::kNumCabs)));
-    comps->setProperty("speaker", makeComp("SPK", "speaker_select", "speaker_blend",
-        buildOptions(CurveData::kSpeakers, CurveData::kNumSpeakers)));
+
+    // Cabinet: combined cab + speaker as sub-components
+    {
+        auto* cabinet = new juce::DynamicObject();
+        cabinet->setProperty("label", "CAB");
+        cabinet->setProperty("type", "cabinet");
+        cabinet->setProperty("cab", makeComp("CAB", "cab_select", "cab_blend",
+            buildOptions(CurveData::kCabs, CurveData::kNumCabs)));
+        cabinet->setProperty("speaker", makeComp("SPK", "speaker_select", "speaker_blend",
+            buildOptions(CurveData::kSpeakers, CurveData::kNumSpeakers)));
+        comps->setProperty("cabinet", cabinet);
+    }
+
     comps->setProperty("position", makeComp("POS", "position_select", "position_blend",
         buildOptions(CurveData::kPositions, CurveData::kNumPositions)));
     root->setProperty("components", comps);

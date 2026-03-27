@@ -26,13 +26,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
 
     // Component selectors
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"mic_select", 1}, "Mic Select", 0, 15, 1));
+        juce::ParameterID{"mic_select", 1}, "Mic Select", 0, 15, 11));  // SM57
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"cab_select", 1}, "Cab Select", 0, 4, 3));
+        juce::ParameterID{"cab_select", 1}, "Cab Select", 0, 4, 0));    // Flat
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"speaker_select", 1}, "Speaker Select", 0, 8, 8));
+        juce::ParameterID{"speaker_select", 1}, "Speaker Select", 0, 8, 0));  // Flat
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"position_select", 1}, "Position Select", 0, 12, 5));
+        juce::ParameterID{"position_select", 1}, "Position Select", 0, 12, 0));  // Center
 
     // Component blends
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -40,13 +40,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"cab_blend", 1}, "Cab Blend",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"speaker_blend", 1}, "Speaker Blend",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"position_blend", 1}, "Position Blend",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
     // Master controls
     params.push_back(std::make_unique<juce::AudioParameterFloat>(

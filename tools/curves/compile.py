@@ -433,10 +433,10 @@ def generate_header():
 
         group_entries = []
         for group_name in MIC_GROUPS:
-            # Find which mic indices belong to this group
+            # Find which mic indices belong to this group (mics can be in multiple groups)
             indices = []
             for slug, info in MICS.items():
-                if info.get("group") == group_name:
+                if group_name in info.get("groups", []):
                     display = info["name"]
                     if display in mic_sorted:
                         indices.append(mic_sorted.index(display))

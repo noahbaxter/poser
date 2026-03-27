@@ -26,6 +26,8 @@ export class Selector {
         this.paramId = opts.paramId;
         this.groups = opts.groups || null;
         this.onChange = opts.onChange || null;
+        this.compact = opts.compact || false;
+        this.small = opts.small || false;
         this.maxVal = this.allOptions.length - 1;
 
         this.currentGlobalIndex = 0;
@@ -40,7 +42,10 @@ export class Selector {
 
     _build(container) {
         this.wrap = document.createElement('div');
-        this.wrap.className = 'selector-wrap';
+        const cls = ['selector-wrap'];
+        if (this.compact) cls.push('compact');
+        if (this.small) cls.push('small');
+        this.wrap.className = cls.join(' ');
 
         // Group buttons — only if groups exist
         if (this.groups) {
@@ -64,12 +69,14 @@ export class Selector {
         this.ring.className = 'selector-ring';
         this.wrap.appendChild(this.ring);
 
-        this.center = document.createElement('div');
-        this.center.className = 'selector-knob-center';
-        const indicator = document.createElement('div');
-        indicator.className = 'selector-indicator';
-        this.center.appendChild(indicator);
-        this.wrap.appendChild(this.center);
+        if (!this.compact) {
+            this.center = document.createElement('div');
+            this.center.className = 'selector-knob-center';
+            const indicator = document.createElement('div');
+            indicator.className = 'selector-indicator';
+            this.center.appendChild(indicator);
+            this.wrap.appendChild(this.center);
+        }
 
         container.appendChild(this.wrap);
 
@@ -83,40 +90,84 @@ export class Selector {
 
         const options = this._currentOptions();
         const n = options.length;
-        const ringRadius = 120;
-        const cx = 190, cy = this.groups ? 175 : 190;
 
-        options.forEach((label, i) => {
-            const el = document.createElement('div');
-            el.className = 'selector-option';
-            el.textContent = label;
-
-            const angle = (i / n) * 360 - 90;
-            const rad = angle * Math.PI / 180;
-            const x = cx + ringRadius * Math.cos(rad);
-            const y = cy + ringRadius * Math.sin(rad);
-
-            el.style.top = `${y}px`;
-            const cosVal = Math.cos(rad);
-            if (cosVal > 0.3) {
-                el.style.left = `${x}px`;
-                el.style.transform = 'translateY(-50%)';
-            } else if (cosVal < -0.3) {
-                el.style.right = `${(cx * 2) - x}px`;
-                el.style.transform = 'translateY(-50%)';
-            } else {
-                el.style.left = `${x}px`;
-                el.style.transform = 'translate(-50%, -50%)';
-            }
-
-            el.addEventListener('click', (e) => {
-                this._selectLocalFromUser(i);
-                e.stopPropagation();
+        if (this.compact) {
+            // Compact mode: vertical list
+            options.forEach((label, i) => {
+                const el = document.createElement('div');
+                el.className = 'selector-option';
+                el.textContent = label;
+                el.addEventListener('click', (e) => {
+                    this._selectLocalFromUser(i);
+                    e.stopPropagation();
+                });
+                this.ring.appendChild(el);
+                this.optionElements.push(el);
             });
+        } else if (this.small) {
+            // Small ring: percentage-based centering
+            const radiusPct = 38; // % of container width
+            options.forEach((label, i) => {
+                const el = document.createElement('div');
+                el.className = 'selector-option';
+                el.textContent = label;
 
-            this.ring.appendChild(el);
-            this.optionElements.push(el);
-        });
+                const angle = (i / n) * 360 - 90;
+                const rad = angle * Math.PI / 180;
+                const xPct = 50 + radiusPct * Math.cos(rad);
+                const yPct = 50 + radiusPct * Math.sin(rad);
+
+                el.style.left = `${xPct}%`;
+                el.style.top = `${yPct}%`;
+                el.style.transform = 'translate(-50%, -50%)';
+
+                el.addEventListener('click', (e) => {
+                    this._selectLocalFromUser(i);
+                    e.stopPropagation();
+                });
+
+                this.ring.appendChild(el);
+                this.optionElements.push(el);
+            });
+        } else {
+            // Ring mode: circular layout
+            const ringRadius = 105;
+            const wrapW = 340;
+            const cx = wrapW / 2;
+            const cy = this.groups ? (cx - 15) : cx;
+
+            options.forEach((label, i) => {
+                const el = document.createElement('div');
+                el.className = 'selector-option';
+                el.textContent = label;
+
+                const angle = (i / n) * 360 - 90;
+                const rad = angle * Math.PI / 180;
+                const x = cx + ringRadius * Math.cos(rad);
+                const y = cy + ringRadius * Math.sin(rad);
+
+                el.style.top = `${y}px`;
+                const cosVal = Math.cos(rad);
+                if (cosVal > 0.3) {
+                    el.style.left = `${x}px`;
+                    el.style.transform = 'translateY(-50%)';
+                } else if (cosVal < -0.3) {
+                    el.style.right = `${wrapW - x}px`;
+                    el.style.transform = 'translateY(-50%)';
+                } else {
+                    el.style.left = `${x}px`;
+                    el.style.transform = 'translate(-50%, -50%)';
+                }
+
+                el.addEventListener('click', (e) => {
+                    this._selectLocalFromUser(i);
+                    e.stopPropagation();
+                });
+
+                this.ring.appendChild(el);
+                this.optionElements.push(el);
+            });
+        }
 
         if (this.groups) {
             this.groupButtons.forEach((btn, i) =>
@@ -161,7 +212,7 @@ export class Selector {
 
         this.optionElements.forEach((el, j) => el.classList.toggle('active', j === localIdx));
 
-        if (localIdx >= 0) {
+        if (!this.compact && localIdx >= 0) {
             this.center.style.transform = `translate(-50%, -50%) rotate(${(localIdx / n) * 360}deg)`;
         }
     }
@@ -182,27 +233,29 @@ export class Selector {
         let dragStartY = 0;
         let dragAccum = 0;
 
-        this.center.addEventListener('mousedown', (e) => {
-            this.dragging = true;
-            dragStartY = e.clientY;
-            dragAccum = 0;
-            e.preventDefault();
-        });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!this.dragging) return;
-            const dy = dragStartY - e.clientY;
-            dragStartY = e.clientY;
-            dragAccum += dy;
-            if (Math.abs(dragAccum) >= 25) {
-                const indices = this._currentIndices();
-                const localIdx = indices.indexOf(this.currentGlobalIndex);
-                this._selectLocalFromUser(localIdx + Math.sign(dragAccum));
+        if (!this.compact) {
+            this.center.addEventListener('mousedown', (e) => {
+                this.dragging = true;
+                dragStartY = e.clientY;
                 dragAccum = 0;
-            }
-        });
+                e.preventDefault();
+            });
 
-        window.addEventListener('mouseup', () => { this.dragging = false; });
+            window.addEventListener('mousemove', (e) => {
+                if (!this.dragging) return;
+                const dy = dragStartY - e.clientY;
+                dragStartY = e.clientY;
+                dragAccum += dy;
+                if (Math.abs(dragAccum) >= 25) {
+                    const indices = this._currentIndices();
+                    const localIdx = indices.indexOf(this.currentGlobalIndex);
+                    this._selectLocalFromUser(localIdx + Math.sign(dragAccum));
+                    dragAccum = 0;
+                }
+            });
+
+            window.addEventListener('mouseup', () => { this.dragging = false; });
+        }
 
         this.wrap.addEventListener('wheel', (e) => {
             e.preventDefault();
