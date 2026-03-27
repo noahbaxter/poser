@@ -8,31 +8,12 @@
 </head>
 <body>
     <div class="plugin">
-        <!-- Tab labels -->
-        <div class="tab-row">
-            <div class="tab active" data-tab="mic">MIC</div>
-            <div class="tab" data-tab="cab">CAB</div>
-            <div class="tab" data-tab="speaker">SPK</div>
-            <div class="tab" data-tab="position">POS</div>
-        </div>
+        <!-- Built dynamically from backend data -->
+        <div class="tab-row" id="tab-row"></div>
+        <div class="blend-row" id="blend-row"></div>
+        <div class="selector-area" id="selector-area"></div>
 
-        <!-- Blend knobs (one per section) -->
-        <div class="blend-row">
-            <div class="blend-slot" id="blend-mic"></div>
-            <div class="blend-slot" id="blend-cab"></div>
-            <div class="blend-slot" id="blend-speaker"></div>
-            <div class="blend-slot" id="blend-position"></div>
-        </div>
-
-        <!-- Big selector knob area -->
-        <div class="selector-area">
-            <div class="selector-panel active" id="panel-mic"></div>
-            <div class="selector-panel" id="panel-cab"></div>
-            <div class="selector-panel" id="panel-speaker"></div>
-            <div class="selector-panel" id="panel-position"></div>
-        </div>
-
-        <!-- Bottom controls -->
+        <!-- Bottom controls (fixed layout) -->
         <div class="bottom-row">
             <div class="master-group">
                 <div class="master-label">LO CUT</div>
@@ -50,9 +31,14 @@
                 <div class="master-label">HI CUT</div>
                 <div class="master-slot" id="knob-high-cut"></div>
             </div>
+            <div class="master-group">
+                <div class="master-label">CAB LPF</div>
+                <div class="master-slot" id="cab-lpf-slot"></div>
+            </div>
         </div>
     </div>
 
+    <div class="version-label" id="version-num"></div>
     <div class="knob-tooltip" id="knob-tooltip"></div>
 
     <script type="module" src="main.js"></script>

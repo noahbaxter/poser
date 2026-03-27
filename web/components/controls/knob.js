@@ -22,7 +22,7 @@ import {
     onParameterChange,
     parameterDragStarted,
     parameterDragEnded,
-} from '../lib/juce-bridge.js';
+} from '../../lib/juce-bridge.js';
 
 export class Knob {
     constructor(container, opts) {

@@ -109,13 +109,7 @@ public:
             magnitudeResponse[i] = std::pow(10.0f, totalDb / 20.0f);
         }
 
-        if (p.cabLpf)
-        {
-            for (int i = 0; i < kComplexSize; ++i)
-                magnitudeResponse[i] *= ::CurveData::kCabLPF[binMapping[i]];
-        }
-
-        // RMS gain compensation
+        // RMS gain compensation — before cab LPF so the filter doesn't affect it
         float sumSq = 0.0f;
         for (int i = 0; i < kComplexSize; ++i)
             sumSq += magnitudeResponse[i] * magnitudeResponse[i];
@@ -125,6 +119,13 @@ public:
             float comp = 1.0f / rms;
             for (int i = 0; i < kComplexSize; ++i)
                 magnitudeResponse[i] *= comp;
+        }
+
+        // Cab LPF applied after compensation — purely additive filter
+        if (p.cabLpf)
+        {
+            for (int i = 0; i < kComplexSize; ++i)
+                magnitudeResponse[i] *= ::CurveData::kCabLPF[binMapping[i]];
         }
     }
 

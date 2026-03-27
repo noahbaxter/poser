@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from registry import MICS
+from registry import MICS, MIC_GROUPS
 
 REPO = Path(__file__).resolve().parent.parent.parent
 ATK_DIR = REPO / "data" / "curves" / "atk"
@@ -307,12 +307,7 @@ def generate_header():
             var_name = f"k{singular}_{ident}"
             mag = items[name]["magnitude_db"]
             raw_peak = max(abs(v) for v in mag)
-            if comp_type != "mic":
-                mag = normalize_curve(mag)
-                norm_peak = max(abs(v) for v in mag)
-                print(f"  {name:12s} raw peak {raw_peak:5.2f}dB → normalized {norm_peak:5.2f}dB")
-            else:
-                print(f"  {name:12s} raw peak {raw_peak:5.2f}dB (natural)")
+            print(f"  {name:12s} peak {raw_peak:5.2f}dB")
             out.append(f"static constexpr float {var_name}[] = {{")
             out.append(format_float_array(mag))
             out.append("};")
@@ -331,6 +326,39 @@ def generate_header():
         out.append(f"static constexpr int kNum{plural} = {len(sorted_names)};")
         out.append("")
         print(f"{plural}: {len(sorted_names)}")
+
+    # Mic groups — map group names to indices into kMics[] (alphabetically sorted)
+    if "mic" in components:
+        mic_sorted = sorted(components["mic"].keys())
+        out.append("struct MicGroup {")
+        out.append("    const char* name;")
+        out.append("    const int* indices;")
+        out.append("    int count;")
+        out.append("};")
+        out.append("")
+
+        group_entries = []
+        for group_name in MIC_GROUPS:
+            # Find which mic indices belong to this group
+            indices = []
+            for slug, info in MICS.items():
+                if info.get("group") == group_name:
+                    display = info["name"]
+                    if display in mic_sorted:
+                        indices.append(mic_sorted.index(display))
+            indices.sort()
+            ident = sanitize_ident(group_name)
+            arr_name = f"kMicGroup_{ident}_indices"
+            out.append(f"static constexpr int {arr_name}[] = {{ {', '.join(str(i) for i in indices)} }};")
+            group_entries.append(f'    {{"{group_name}", {arr_name}, {len(indices)}}}')
+
+        out.append("")
+        out.append(f"static constexpr MicGroup kMicGroups[] = {{")
+        out.append(",\n".join(group_entries))
+        out.append("};")
+        out.append(f"static constexpr int kNumMicGroups = {len(MIC_GROUPS)};")
+        out.append("")
+        print(f"MicGroups: {len(MIC_GROUPS)}")
 
     out.append("} // namespace CurveData")
     out.append("")

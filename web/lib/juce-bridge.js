@@ -1,60 +1,40 @@
-// JUCE WebView Bridge - uses official JUCE frontend library
+// JUCE WebView Bridge — dynamic parameter state management
 import * as Juce from './juce/index.js';
 
-// All parameter slider states
-const sliderStates = {
-    mic_select: Juce.getSliderState("mic_select"),
-    cab_select: Juce.getSliderState("cab_select"),
-    speaker_select: Juce.getSliderState("speaker_select"),
-    position_select: Juce.getSliderState("position_select"),
-    mic_blend: Juce.getSliderState("mic_blend"),
-    cab_blend: Juce.getSliderState("cab_blend"),
-    speaker_blend: Juce.getSliderState("speaker_blend"),
-    position_blend: Juce.getSliderState("position_blend"),
-    master_push: Juce.getSliderState("master_push"),
-    output_trim: Juce.getSliderState("output_trim"),
-    curve_low_cut: Juce.getSliderState("curve_low_cut"),
-    curve_high_cut: Juce.getSliderState("curve_high_cut"),
-    curve_mode: Juce.getSliderState("curve_mode"),
-};
+const sliderStates = {};
+
+function getOrCreateState(id) {
+    if (!sliderStates[id])
+        sliderStates[id] = Juce.getSliderState(id);
+    return sliderStates[id];
+}
 
 export function setParameterNormalized(id, normalizedValue) {
-    const state = sliderStates[id];
-    if (state) {
-        state.setNormalisedValue(normalizedValue);
-    }
+    getOrCreateState(id).setNormalisedValue(normalizedValue);
 }
 
 export function getParameterNormalized(id) {
-    const state = sliderStates[id];
-    return state?.getNormalisedValue() ?? 0;
+    return getOrCreateState(id)?.getNormalisedValue() ?? 0;
 }
 
 export function getParameterScaled(id) {
-    const state = sliderStates[id];
-    return state?.getScaledValue() ?? 0;
+    return getOrCreateState(id)?.getScaledValue() ?? 0;
 }
 
 export function getParameterProperties(id) {
-    const state = sliderStates[id];
-    return state?.properties ?? null;
+    return getOrCreateState(id)?.properties ?? null;
 }
 
 export function onParameterChange(id, callback) {
-    const state = sliderStates[id];
-    if (state) {
-        state.valueChangedEvent.addListener(callback);
-    }
+    getOrCreateState(id).valueChangedEvent.addListener(callback);
 }
 
 export function parameterDragStarted(id) {
-    const state = sliderStates[id];
-    if (state) state.sliderDragStarted();
+    getOrCreateState(id).sliderDragStarted();
 }
 
 export function parameterDragEnded(id) {
-    const state = sliderStates[id];
-    if (state) state.sliderDragEnded();
+    getOrCreateState(id).sliderDragEnded();
 }
 
 export function registerCallback(name, callback) {

@@ -15,10 +15,10 @@ public:
 private:
     void timerCallback() override;
     std::optional<juce::WebBrowserComponent::Resource> getResource(const juce::String& url);
-    void pushVersionOnce();
+    void pushInitData();
 
     PoserProcessor& audioProcessor;
-    bool versionPushed = false;
+    bool initDataPushed = false;
     int timerTicks = 0;
 
     // WebView relay objects — one per parameter

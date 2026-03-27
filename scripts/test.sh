@@ -31,6 +31,9 @@ for arg in "$@"; do
         integration|Integration|INTEGRATION)
             TEST_TYPE="integration"
             ;;
+        gaincomp|gain-comp|GAINCOMP)
+            TEST_TYPE="gaincomp"
+            ;;
         compliance|Compliance|COMPLIANCE)
             TEST_TYPE="compliance"
             ;;
@@ -92,6 +95,11 @@ run_compliance_tests() {
     pytest "$TESTS_DIR/compliance" $VERBOSE
 }
 
+run_gaincomp_test() {
+    echo -e "\n${BLUE}=== Running Gain Compensation Test ===${NC}"
+    python3 "$PROJECT_ROOT/tests/test_gain_comp.py"
+}
+
 run_validate() {
     local strictness="${VALIDATE_STRICTNESS:-10}"
     echo -e "\n${BLUE}=== Running pluginval (strictness $strictness) ===${NC}"
@@ -122,10 +130,14 @@ case "$TEST_TYPE" in
     compliance)
         run_compliance_tests
         ;;
+    gaincomp)
+        run_gaincomp_test
+        ;;
     validate)
         run_validate
         ;;
     all)
+        run_gaincomp_test
         run_unit_tests
         run_integration_tests
         run_compliance_tests

@@ -35,6 +35,9 @@ for arg in "$@"; do
         release|Release|RELEASE)
             MODE="Release"
             ;;
+        curves|Curves|CURVES)
+            MODE="Curves"
+            ;;
         --install)
             INSTALL=true
             ;;
@@ -118,6 +121,11 @@ needs_reconfigure() {
 if [ "$MODE" != "Clean" ] && [ "$MODE" != "Uninstall" ]; then
     echo -e "${YELLOW}Regenerating curve data...${NC}"
     python3 "$PROJECT_ROOT/tools/curves/manage.py" build
+fi
+
+if [ "$MODE" = "Curves" ]; then
+    echo -e "${GREEN}Done (curves only)${NC}"
+    exit 0
 fi
 
 case "$MODE" in

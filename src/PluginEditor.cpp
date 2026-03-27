@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "BinaryData.h"
+#include "CurveData.h"
 
 juce::AudioProcessorEditor* PoserProcessor::createEditor()
 {
@@ -97,56 +98,97 @@ void PoserEditor::resized()
 void PoserEditor::timerCallback()
 {
     ++timerTicks;
-    pushVersionOnce();
+    pushInitData();
 }
 
-void PoserEditor::pushVersionOnce()
-{
-    if (versionPushed) return;
+// --- Init payload: push component names + mic groups to JS ---
 
-    juce::String js = "(() => { "
-                      "const el = document.getElementById('version-num'); "
-                      "if (!el) return false; "
-                      "el.textContent = 'v" JucePlugin_VersionString "'; "
-                      "return true; })()";
+void PoserEditor::pushInitData()
+{
+    if (initDataPushed) return;
+
+    auto* root = new juce::DynamicObject();
+    root->setProperty("version", juce::String(JucePlugin_VersionString) + " (" + __DATE__ + " " + __TIME__ + ")");
+
+    // Component options: iterate CurveData arrays for names
+    auto* comps = new juce::DynamicObject();
+
+    auto buildOptions = [](const auto* curves, int count) {
+        juce::Array<juce::var> arr;
+        for (int i = 0; i < count; ++i)
+            arr.add(juce::String(curves[i].name));
+        return arr;
+    };
+
+    auto makeComp = [](const char* label, const char* paramId, const char* blendId, juce::Array<juce::var> options) {
+        auto* c = new juce::DynamicObject();
+        c->setProperty("label", juce::String(label));
+        c->setProperty("paramId", juce::String(paramId));
+        c->setProperty("blendId", juce::String(blendId));
+        c->setProperty("options", options);
+        return c;
+    };
+
+    comps->setProperty("mic", makeComp("MIC", "mic_select", "mic_blend",
+        buildOptions(CurveData::kMics, CurveData::kNumMics)));
+    comps->setProperty("cab", makeComp("CAB", "cab_select", "cab_blend",
+        buildOptions(CurveData::kCabs, CurveData::kNumCabs)));
+    comps->setProperty("speaker", makeComp("SPK", "speaker_select", "speaker_blend",
+        buildOptions(CurveData::kSpeakers, CurveData::kNumSpeakers)));
+    comps->setProperty("position", makeComp("POS", "position_select", "position_blend",
+        buildOptions(CurveData::kPositions, CurveData::kNumPositions)));
+    root->setProperty("components", comps);
+
+    // Mic groups
+    juce::Array<juce::var> groups;
+    for (int g = 0; g < CurveData::kNumMicGroups; ++g)
+    {
+        auto* group = new juce::DynamicObject();
+        group->setProperty("name", juce::String(CurveData::kMicGroups[g].name));
+        juce::Array<juce::var> indices;
+        for (int i = 0; i < CurveData::kMicGroups[g].count; ++i)
+            indices.add(CurveData::kMicGroups[g].indices[i]);
+        group->setProperty("indices", indices);
+        groups.add(group);
+    }
+    root->setProperty("micGroups", groups);
+
+    juce::String json = juce::JSON::toString(juce::var(root));
+    juce::String js = "if (window.__poser_init__ && !window.__poser_initialized__) window.__poser_init__(" + json + ");";
     webView.evaluateJavascript(js, nullptr);
 
-    if (timerTicks >= 120)
-        versionPushed = true;
+    if (timerTicks >= 300)
+        initDataPushed = true;
 }
+
+// --- Resource provider ---
 
 std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getResource(const juce::String& url)
 {
     juce::String urlToRetrieve;
 
     if (url == "/" || url.endsWithIgnoreCase("juce.backend/") || url.endsWithIgnoreCase("juce.backend"))
-    {
         urlToRetrieve = "index.html";
-    }
     else if (url.contains("juce.backend/"))
-    {
         urlToRetrieve = url.fromLastOccurrenceOf("juce.backend/", false, true);
-    }
     else if (url.startsWith("/"))
-    {
         urlToRetrieve = url.substring(1);
-    }
     else
-    {
         urlToRetrieve = url;
-    }
 
     if (urlToRetrieve.isEmpty())
         urlToRetrieve = "index.html";
 
     struct ResourceEntry { const char* path; const void* data; int size; const char* mime; };
     static const ResourceEntry resources[] = {
-        { "index.html",              BinaryData::index_html,      BinaryData::index_htmlSize,      "text/html" },
-        { "main.js",                 BinaryData::main_js,         BinaryData::main_jsSize,         "text/javascript" },
-        { "main.css",                BinaryData::main_css,        BinaryData::main_cssSize,        "text/css" },
-        { "components/knob.js",      BinaryData::knob_js,         BinaryData::knob_jsSize,         "text/javascript" },
-        { "lib/juce-bridge.js",      BinaryData::jucebridge_js,   BinaryData::jucebridge_jsSize,   "text/javascript" },
-        { "lib/juce/index.js",       BinaryData::index_js,        BinaryData::index_jsSize,        "text/javascript" },
+        { "index.html",                     BinaryData::index_html,             BinaryData::index_htmlSize,              "text/html" },
+        { "main.js",                        BinaryData::main_js,                BinaryData::main_jsSize,                 "text/javascript" },
+        { "main.css",                       BinaryData::main_css,               BinaryData::main_cssSize,                "text/css" },
+        { "components/controls/knob.js",    BinaryData::knob_js,                BinaryData::knob_jsSize,                 "text/javascript" },
+        { "components/controls/selector.js",BinaryData::selector_js,            BinaryData::selector_jsSize,             "text/javascript" },
+        { "components/controls/toggle.js",  BinaryData::toggle_js,              BinaryData::toggle_jsSize,               "text/javascript" },
+        { "lib/juce-bridge.js",             BinaryData::jucebridge_js,          BinaryData::jucebridge_jsSize,           "text/javascript" },
+        { "lib/juce/index.js",              BinaryData::index_js,               BinaryData::index_jsSize,                "text/javascript" },
         { "lib/juce/check_native_interop.js", BinaryData::check_native_interop_js, BinaryData::check_native_interop_jsSize, "text/javascript" },
     };
 
