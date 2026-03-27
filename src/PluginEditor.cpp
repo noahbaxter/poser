@@ -23,6 +23,7 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       curveLowCutRelay{"curve_low_cut"},
       curveHighCutRelay{"curve_high_cut"},
       curveModeRelay{"curve_mode"},
+      cabLpfRelay{"cab_lpf"},
       webView{
           juce::WebBrowserComponent::Options{}
               .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
@@ -46,6 +47,7 @@ PoserEditor::PoserEditor(PoserProcessor& p)
               .withOptionsFrom(curveLowCutRelay)
               .withOptionsFrom(curveHighCutRelay)
               .withOptionsFrom(curveModeRelay)
+              .withOptionsFrom(cabLpfRelay)
       },
       micSelectAttach{*audioProcessor.getAPVTS().getParameter("mic_select"), micSelectRelay, nullptr},
       cabSelectAttach{*audioProcessor.getAPVTS().getParameter("cab_select"), cabSelectRelay, nullptr},
@@ -59,7 +61,8 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       outputTrimAttach{*audioProcessor.getAPVTS().getParameter("output_trim"), outputTrimRelay, nullptr},
       curveLowCutAttach{*audioProcessor.getAPVTS().getParameter("curve_low_cut"), curveLowCutRelay, nullptr},
       curveHighCutAttach{*audioProcessor.getAPVTS().getParameter("curve_high_cut"), curveHighCutRelay, nullptr},
-      curveModeAttach{*audioProcessor.getAPVTS().getParameter("curve_mode"), curveModeRelay, nullptr}
+      curveModeAttach{*audioProcessor.getAPVTS().getParameter("curve_mode"), curveModeRelay, nullptr},
+      cabLpfAttach{*audioProcessor.getAPVTS().getParameter("cab_lpf"), cabLpfRelay, nullptr}
 {
     addAndMakeVisible(webView);
     webView.setWantsKeyboardFocus(false);

@@ -264,6 +264,36 @@ def generate_header():
     out.append("};")
     out.append("")
 
+    # Cab LPF: average frequency response shape of real guitar cabs from IR data.
+    # Normalized at 1kHz so it's purely a filter shape, not a level offset.
+    cab_lpf_path = REPO / "data" / "ir" / "v30_cab_comparison.json"
+    if cab_lpf_path.exists():
+        with open(cab_lpf_path) as f:
+            ir_data = json.load(f)
+        ir_freqs = np.array(ir_data["frequencies_hz"])
+        all_cab_mags = [np.array(ir_data["cabs"][n]["magnitude_db"])
+                        for n in ir_data["cabs"]]
+        avg_cab = np.mean(all_cab_mags, axis=0)
+        # Normalize at 1kHz
+        idx_1k = int(np.argmin(np.abs(ir_freqs - 1000)))
+        avg_cab -= avg_cab[idx_1k]
+        # Interpolate onto our frequency grid
+        log_ir = np.log10(np.maximum(ir_freqs, 1.0))
+        log_tgt = np.log10(np.maximum(np.array(freqs), 1.0))
+        cab_lpf = np.interp(log_tgt, log_ir, avg_cab)
+        # Convert to linear gain for runtime multiplication
+        cab_lpf_linear = (10.0 ** (cab_lpf / 20.0)).tolist()
+
+        out.append("// Average cab frequency response (linear gain, normalized at 1kHz).")
+        out.append("// Apply on top of cab character curve when cab LPF is enabled.")
+        out.append(f"static constexpr float kCabLPF[] = {{")
+        out.append(format_float_array(cab_lpf_linear))
+        out.append("};")
+        out.append("")
+        print(f"Cab LPF: from {len(all_cab_mags)} real cab IRs, "
+              f"{avg_cab[0]:+.1f}dB at {freqs[0]:.0f}Hz, "
+              f"{avg_cab[-1]:+.1f}dB at {freqs[-1]:.0f}Hz")
+
     for comp_type in ("cab", "speaker", "mic", "position"):
         if comp_type not in components:
             continue

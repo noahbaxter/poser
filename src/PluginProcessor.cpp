@@ -67,6 +67,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"curve_mode", 1}, "Curve Mode", 0, 2, 0));
 
+    // Cab LPF: applies average real cab frequency response on top of cab curve
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"cab_lpf", 1}, "Cab LPF", false));
+
     return {params.begin(), params.end()};
 }
 
@@ -173,6 +177,7 @@ void PoserProcessor::recomputeMagnitudeResponse()
     float lowCutHz      = apvts.getRawParameterValue("curve_low_cut")->load();
     float highCutHz     = apvts.getRawParameterValue("curve_high_cut")->load();
     int   curveMode     = static_cast<int>(apvts.getRawParameterValue("curve_mode")->load());
+    bool  cabLpf        = apvts.getRawParameterValue("cab_lpf")->load() >= 0.5f;
 
 
     for (int i = 0; i < complexSize; ++i)
@@ -220,6 +225,16 @@ void PoserProcessor::recomputeMagnitudeResponse()
         }
 
         magnitudeResponse[i] = std::pow(10.0f, totalDb / 20.0f);
+    }
+
+    // Optional cab LPF: apply average real cab frequency response
+    if (cabLpf)
+    {
+        for (int i = 0; i < complexSize; ++i)
+        {
+            int cb = binMapping[i];
+            magnitudeResponse[i] *= ::CurveData::kCabLPF[cb];
+        }
     }
 
     // Gain compensation: measure RMS power of the actual combined magnitude
@@ -301,7 +316,7 @@ void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 
     // Parameter change detection
     {
-        float params[13] = {
+        float params[14] = {
             apvts.getRawParameterValue("mic_select")->load(),
             apvts.getRawParameterValue("cab_select")->load(),
             apvts.getRawParameterValue("speaker_select")->load(),
@@ -315,6 +330,7 @@ void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             apvts.getRawParameterValue("curve_low_cut")->load(),
             apvts.getRawParameterValue("curve_high_cut")->load(),
             apvts.getRawParameterValue("curve_mode")->load(),
+            apvts.getRawParameterValue("cab_lpf")->load(),
         };
         if (needsResponseUpdate || std::memcmp(params, prevParams, sizeof(params)) != 0)
         {

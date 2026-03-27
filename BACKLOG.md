@@ -1,51 +1,23 @@
 # Backlog
 
-## Phase 0 — Validation (COMPLETE)
+## Up Next
 
-- [x] Build IR inventory and decomposition pipeline
-- [x] Build 4-layer component extraction
-- [x] Validate methodology: IR-extracted mic components match known mic characteristics
-- [x] **Decision gate: MODULAR** — all four layers (cab, speaker, mic, position) extract as coherent, distinct EQ shapes
+- [ ] `feature` **Backend-driven UI** — all component lists, parameter ranges, and labels come from C++ at init. No hardcoded data in JS. Mic groups (Vocal/Instrument/Kick/Condenser/Ribbon) with left/right arrows to page between groups.
+- [ ] `feature` **Curve viewer** — collapsible panel that slides out from the bottom of the plugin. Shows the composite EQ curve for the current selection. Click icon to toggle.
+- [ ] `feature` **Mic categorization in selector** — group mics by type so there aren't 16+ on one ring. Registry already has `group` field, needs UI support.
+- [ ] `chore` **Per-cab LPF from IR decomposition** — extract the absolute magnitude envelope per cab during IR decomposition instead of using the averaged shape. Each cab gets its own natural rolloff curve.
+- [ ] `feature` **More cabs** — expand beyond 4 cab configurations. Source additional IR data for cab/speaker filter parameters.
 
-### Key findings
-- All four variables extract as coherent shapes from IR data
-- Mic curves from manufacturer measurements are dramatically better than IR-extracted residuals (15-22dB vs 1-2dB of character)
-- Cab/speaker/position extraction from IRs works well for the "flavor" use case
-- Position has the cleanest gradient (bright center ↔ dark edge)
+## Inbox
 
-## Phase 1 — Core DSP & Prototype (IN PROGRESS)
+- [ ] `feature` **Pedal/gear tone curves** — HM-2, Neve preamp, API console. Famous tonal signatures from non-mic gear. Need to figure out source data (manufacturer specs? community measurements?).
+- [ ] `chore` **High/low rolloff detection in curve pipeline** — algorithmically detect where each curve's natural rolloff begins during compile, rather than relying on fixed taper points. Would improve character extraction accuracy.
+- [ ] `feature` **Curve mode toggle in UI** — boost-only / cut-only / both. Parameter exists in backend, no UI control yet.
 
-### Done
-- [x] FFT-based magnitude EQ using AudioFFT (cross-platform, handles scaling correctly)
-- [x] Sqrt-Hann WOLA with 50% overlap — verified perfect reconstruction via impulse test
-- [x] 4 component selectors (mic, cab, speaker, position) with per-component blend 0-100%
-- [x] Master push knob (-500% to +500%) scales entire composite curve
-- [x] Output trim with smoothing
-- [x] Auto-gain compensation (average magnitude → unity)
-- [x] Curve low/high cut (fade EQ curve to 0dB outside freq range, prevents bass buildup)
-- [x] Boost-only / cut-only / both mode (parameter exists, not yet in UI)
-- [x] All parameters bridged to WebView UI via JUCE relay system
-- [x] Knob component (`web/components/knob.js`) — reads initial state from C++ backend synchronously, listens for changes, no feedback loops
-- [x] Shift+click to disable individual components
-- [x] State save/recall via APVTS
-- [x] 15 DSP integration tests passing (passthrough, spectral, kick drum, preset switching)
-- [x] pluginval compliance passing
-- [x] Real mic curves from Audio Test Kitchen (Harman Labs): SM57, SM58, SM7B, U87, C414
+- [ ] `feature` **Zero/low-latency mode** — fit the magnitude curve to a minimum-phase FIR or IIR biquad filter bank instead of FFT overlap-add. True zero-latency for tracking use. FFT mode stays as the "quality" option.
 
-### In progress / needs work
-- [ ] Integrate real mic curves properly — currently normalized but need to verify they sound right at natural magnitude vs the IR-extracted cab/speaker/position curves
-- [ ] Get more mic data: MD421, R-121, RE20, D112, M88, e906 not in ATK database
-- [ ] RecordingHacks has 800 mic graphs as PNGs — could automate curve extraction via image processing
-- [ ] Curve mode UI (boost-only/cut-only toggle) — parameter exists but no UI control yet
+## Icebox
 
-## Phase 2 — More Mic Curves
-
-### Available sources
-- **Audio Test Kitchen** — 6 mics downloaded (SM57, SM58, SM7B, U87, C414). CSV data from Harman Labs measurements. Best quality but limited to condensers mostly.
-- **RecordingHacks** — 800 graphs for 600 mics, all retraced to common scale. PNG images at `/graphs2.php/{ID}`. Could automate extraction.
-- **Manufacturer PDFs** — Shure, Sennheiser, AKG, Neumann, Royer publish spec sheets. Manual WebPlotDigitizer process (~5 min each).
-
-### Target mics still needed
 - [ ] Sennheiser MD421 (mid scoop, the "broadcast dynamic")
 - [ ] Royer R-121 (ribbon rolloff, guitar cab favorite)
 - [ ] Electro-Voice RE20 (flat broadcast sound)
@@ -75,26 +47,34 @@
 
 ## Phase 5 — Production
 
-- [ ] Proper overlap-add (current simple FIFO has ~21ms latency, acceptable but could improve)
+- [ ] Tilt/focus control (shifts curve center of gravity up/down in frequency)
+- [ ] Multi-curve blending — dual slot with crossfade ("40% SM7B + 60% RE20")
+- [ ] User-importable curves / community presets
+- [ ] Expansion preset packs
+- [ ] Preset system (save/recall combinations)
 - [ ] Windows build verification
-- [ ] Remove debug white noise generator from standalone
-- [ ] Update old integration tests (gain_db tests removed, need new regression baselines)
-- [ ] C++ unit tests for the FFT processing
-- [ ] Performance profiling
 - [ ] Installer builds (macOS pkg, Windows Inno Setup)
+- [ ] Performance profiling
+- [ ] C++ unit tests for FFT processing
 
-## Ideas / Future
+## Done
 
-- Tilt/focus control (shifts curve center of gravity up/down in frequency)
-- Multi-curve blending — dual slot with crossfade ("40% SM7B + 60% RE20")
-- User-importable curves / community presets
-- Advanced mode: expose underlying EQ curve visualization (educational)
-- Expansion preset packs
-- Automated RecordingHacks graph extraction for 600+ mics
+- [x] 16 mic curves from ATK + RecordingHacks digitization pipeline
+- [x] Mask-based digitization with hand-editing for multi-curve mics
+- [x] Character extraction (subtract average mic rolloff, safety taper)
+- [x] Runtime RMS gain compensation
+- [x] Cab LPF parameter (average of 18 real cab IRs)
+- [x] Unified manage.py entry point with registry.py
+- [x] FFT overlap-add DSP (sqrt-Hann WOLA, 50% overlap)
+- [x] 4 component selectors with per-component blend
+- [x] Scale knob (-500% to +500%)
+- [x] Curve low/high cut, output trim
+- [x] WebView UI with knob components
+- [x] State save/recall, pluginval compliance
+- [x] IR decomposition pipeline (cab/speaker/mic/position)
 
 ## Known Issues
 
-- Latency is ~21ms (1024 samples at 48kHz) — acceptable for mixing, not for tracking
-- Some curves (EDGE, certain speakers) cause bass buildup at high push — use low cut knob
+- Latency is ~21ms (1024 samples at 48kHz) — acceptable for mixing, not tracking
+- Cab curves are relative differences only (absolute rolloff extracted separately as LPF)
 - Curve mode (boost/cut only) parameter exists but no UI yet
-- Old test_integration.py tests were removed (referenced nonexistent gain_db param)
