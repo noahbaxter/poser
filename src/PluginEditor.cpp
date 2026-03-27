@@ -73,7 +73,7 @@ PoserEditor::PoserEditor(PoserProcessor& p)
     webView.setOpaque(false);
 
     setResizable(false, false);
-    setSize(500, 520);
+    setSize(560, 560);
 
     juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<PoserEditor>(this)]() {
         if (safeThis != nullptr)

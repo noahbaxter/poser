@@ -12,13 +12,13 @@ Full spec in memory: `project_ui_redesign.md`
   - cab_blend, speaker_blend, position_blend defaults = 0.0 (OFF)
   - cab_select, speaker_select defaults = 0 (Flat)
   - position_select default = 0 (center)
-- [ ] **1.3** Regenerate CurveData.h (`manage.py build`)
+- [x] **1.3** Regenerate CurveData.h (`manage.py build`)
 
 ## Phase 2 — CSS Foundation
 
-- [ ] **2.1** CSS custom properties refactor: all pixel sizes into `:root` variables
+- [x] **2.1** CSS custom properties refactor: all pixel sizes into `:root` variables
   (ring size, knob sizes, font sizes, gaps, etc.)
-- [ ] **2.2** Plugin window size: 560×560 in PluginEditor.cpp
+- [x] **2.2** Plugin window size: 560×560 in PluginEditor.cpp
 
 ## Phase 3 — Layout Rebuild
 

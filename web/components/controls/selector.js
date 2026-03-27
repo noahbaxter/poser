@@ -130,9 +130,10 @@ export class Selector {
                 this.optionElements.push(el);
             });
         } else {
-            // Ring mode: circular layout
-            const ringRadius = 105;
-            const wrapW = 340;
+            // Ring mode: circular layout (read from CSS custom properties)
+            const style = getComputedStyle(document.documentElement);
+            const ringRadius = parseInt(style.getPropertyValue('--ring-radius')) || 105;
+            const wrapW = parseInt(style.getPropertyValue('--ring-size')) || 340;
             const cx = wrapW / 2;
             const cy = this.groups ? (cx - 15) : cx;
 
