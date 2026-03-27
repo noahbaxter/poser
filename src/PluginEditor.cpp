@@ -153,14 +153,30 @@ void PoserEditor::pushInitData()
 
     // Mic groups
     juce::Array<juce::var> groups;
-    for (int g = 0; g < CurveData::kNumMicGroups; ++g)
+    for (int g = 0; g < ::CurveData::kNumMicGroups; ++g)
     {
         auto* group = new juce::DynamicObject();
-        group->setProperty("name", juce::String(CurveData::kMicGroups[g].name));
+        group->setProperty("name", juce::String(::CurveData::kMicGroups[g].name));
         juce::Array<juce::var> indices;
-        for (int i = 0; i < CurveData::kMicGroups[g].count; ++i)
-            indices.add(CurveData::kMicGroups[g].indices[i]);
+        for (int i = 0; i < ::CurveData::kMicGroups[g].count; ++i)
+            indices.add(::CurveData::kMicGroups[g].indices[i]);
         group->setProperty("indices", indices);
+
+        // Sub-group tags (e.g. "kick" mics grouped together)
+        if (::CurveData::kMicGroups[g].numTags > 0)
+        {
+            juce::Array<juce::var> tags;
+            for (int t = 0; t < ::CurveData::kMicGroups[g].numTags; ++t)
+            {
+                auto* tag = new juce::DynamicObject();
+                tag->setProperty("name", juce::String(::CurveData::kMicGroups[g].tags[t].name));
+                tag->setProperty("start", ::CurveData::kMicGroups[g].tags[t].start);
+                tag->setProperty("end", ::CurveData::kMicGroups[g].tags[t].end);
+                tags.add(tag);
+            }
+            group->setProperty("tags", tags);
+        }
+
         groups.add(group);
     }
     root->setProperty("micGroups", groups);

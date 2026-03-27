@@ -25,6 +25,7 @@ export class Selector {
         this.allOptions = opts.options;
         this.paramId = opts.paramId;
         this.groups = opts.groups || null;
+        this.groupBarContainer = opts.groupBarContainer || null;
         this.onChange = opts.onChange || null;
         this.compact = opts.compact || false;
         this.small = opts.small || false;
@@ -62,7 +63,17 @@ export class Selector {
                 this.groupButtons.push(btn);
             });
 
-            this.wrap.appendChild(this.groupBar);
+            // Scroll wheel on group bar: up = right, down = left, block at edges
+            this.groupBar.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const next = this.currentGroupIdx + (e.deltaY < 0 ? 1 : -1);
+                if (next >= 0 && next < this.groups.length) {
+                    this._switchToGroup(next);
+                }
+            });
+
+            // Render group bar externally if container provided, otherwise inside wrap
+            (this.groupBarContainer || this.wrap).appendChild(this.groupBar);
         }
 
         this.ring = document.createElement('div');
@@ -135,7 +146,7 @@ export class Selector {
             const ringRadius = parseInt(style.getPropertyValue('--ring-radius')) || 105;
             const wrapW = parseInt(style.getPropertyValue('--ring-size')) || 340;
             const cx = wrapW / 2;
-            const cy = this.groups ? (cx - 15) : cx;
+            const cy = cx;
 
             options.forEach((label, i) => {
                 const el = document.createElement('div');
@@ -173,10 +184,58 @@ export class Selector {
         if (this.groups) {
             this.groupButtons.forEach((btn, i) =>
                 btn.classList.toggle('active', i === this.currentGroupIdx));
+
+            // Draw sub-group arcs behind tagged items
+            this._drawTagArcs(options.length);
         }
 
         // Update highlight for current selection
         this._highlightCurrent();
+    }
+
+    _drawTagArcs(n) {
+        // Remove old arcs
+        this.wrap.querySelectorAll('.tag-arc').forEach(el => el.remove());
+
+        if (this.compact || this.small) return;
+        const group = this.groups[this.currentGroupIdx];
+        if (!group.tags || group.tags.length === 0) return;
+
+        const style = getComputedStyle(document.documentElement);
+        const ringRadius = parseInt(style.getPropertyValue('--ring-radius')) || 92;
+        const wrapW = parseInt(style.getPropertyValue('--ring-size')) || 300;
+        const cx = wrapW / 2;
+        const cy = cx;
+        const arcRadius = ringRadius + 22;
+
+        const TAG_COLORS = { kick: 'rgba(0,0,0,0.15)' };
+        const sliceAngle = 360 / n; // degrees per item
+
+        for (const tag of group.tags) {
+            const color = TAG_COLORS[tag.name] || 'rgba(0,0,0,0.04)';
+            // Arc starts halfway before first item and ends halfway after last item
+            const startAngle = ((tag.start * sliceAngle) - sliceAngle / 2 - 90) * Math.PI / 180;
+            const endAngle = ((tag.end * sliceAngle) + sliceAngle / 2 - 90) * Math.PI / 180;
+
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.classList.add('tag-arc');
+            svg.setAttribute('width', wrapW);
+            svg.setAttribute('height', wrapW);
+            svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
+
+            const x1 = cx + arcRadius * Math.cos(startAngle);
+            const y1 = cy + arcRadius * Math.sin(startAngle);
+            const x2 = cx + arcRadius * Math.cos(endAngle);
+            const y2 = cy + arcRadius * Math.sin(endAngle);
+            const largeArc = (endAngle - startAngle) > Math.PI ? 1 : 0;
+
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d',
+                `M ${cx} ${cy} L ${x1} ${y1} A ${arcRadius} ${arcRadius} 0 ${largeArc} 1 ${x2} ${y2} Z`);
+            path.setAttribute('fill', color);
+            svg.appendChild(path);
+            this.wrap.appendChild(svg);
+        }
     }
 
     _currentOptions() {
@@ -262,7 +321,7 @@ export class Selector {
             e.preventDefault();
             const indices = this._currentIndices();
             const localIdx = indices.indexOf(this.currentGlobalIndex);
-            this._selectLocalFromUser(localIdx + (e.deltaY > 0 ? 1 : -1));
+            this._selectLocalFromUser(localIdx + (e.deltaY > 0 ? -1 : 1));
         });
     }
 
@@ -309,4 +368,8 @@ export class Selector {
     }
 
     getIndex() { return this.currentGlobalIndex; }
+
+    setDisabled(disabled) {
+        this.wrap.classList.toggle('disabled', disabled);
+    }
 }

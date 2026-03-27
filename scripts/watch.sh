@@ -44,7 +44,7 @@ echo -e "${CYAN}=== $PLUGIN_NAME Watch Mode ===${NC}"
 echo -e "Watching: src/, web/"
 echo -e "Press Ctrl+C to stop\n"
 
-"$SCRIPT_DIR/standalone.sh"
+"$SCRIPT_DIR/build.sh" standalone
 
 # Watch and rebuild
 # -l 0.5 = 500ms latency (debounce rapid changes)
@@ -56,7 +56,7 @@ fswatch -o -l 0.5 "$PROJECT_ROOT/src" "$PROJECT_ROOT/web" | while read -r _; do
     touch "$PROJECT_ROOT/CMakeLists.txt"
 
     # Build first, only kill/relaunch if successful
-    if "$SCRIPT_DIR/standalone.sh" --no-launch; then
+    if "$SCRIPT_DIR/build.sh" standalone --no-launch; then
         BUILD_DONE=$(python3 -c 'import time; print(time.time())')
         kill_app
         open -g "$APP_PATH"

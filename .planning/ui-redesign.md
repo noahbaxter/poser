@@ -22,15 +22,15 @@ Full spec in memory: `project_ui_redesign.md`
 
 ## Phase 3 — Layout Rebuild
 
-- [ ] **3.1** 2-tab structure: MIC and CAB. Remove old 4-tab / cabinet dual-selector code.
+- [x] **3.1** 2-tab structure: MIC and CAB. Remove old 4-tab / cabinet dual-selector code.
   CAB tab grayed out (not hidden) when all cab components OFF.
-- [ ] **3.2** MIC tab: big ring selector + 3 group buttons (Drum/Vocal/Instrument)
-- [ ] **3.3** Blend panel component: 4 rows (MIC/CAB/SPK/POS), each with toggle square
+- [x] **3.2** MIC tab: big ring selector + 3 group buttons (Drum/Vocal/Instrument)
+- [x] **3.3** Blend panel component: 4 rows (MIC/CAB/SPK/POS), each with toggle square
   + label + small blend knob. Always visible at bottom-right. Clicking label switches
   the active view to that component. Toggle OFF = blend forced to 0, ON = restore to
   saved value (default 100%).
-- [ ] **3.4** Bottom-left controls: LO CUT, TRIM, HI CUT knobs + FILTER and COMP toggles
-- [ ] **3.5** Scale knob: centered, fixed position above bottom controls, always visible
+- [x] **3.4** Bottom-left controls: LO CUT, TRIM, HI CUT knobs + FLT and CMP toggles
+- [x] **3.5** Scale knob: centered, fixed position above bottom controls, always visible
 
 ## Phase 4 — CAB Tab
 

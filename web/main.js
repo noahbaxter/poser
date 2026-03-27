@@ -21,103 +21,116 @@ window.__poser_init__ = function(config) {
 };
 
 function buildUI(config) {
-    const componentIds = Object.keys(config.components);
+    const tabRow = document.getElementById('tab-row');
+    const groupBarSlot = document.getElementById('group-bar-slot');
+    const selectorArea = document.getElementById('selector-area');
+    const blendPanel = document.getElementById('blend-panel');
+
     const state = {};
     const blendKnobs = {};
     const selectors = {};
 
-    // ---- Tabs ----
-    const tabRow = document.getElementById('tab-row');
-    const blendRow = document.getElementById('blend-row');
-    const selectorArea = document.getElementById('selector-area');
+    // ---- MIC tab ----
 
-    for (const id of componentIds) {
-        const comp = config.components[id];
+    const micComp = config.components.mic;
+    const micTab = makeTab('MIC', 'mic');
+    micTab.classList.add('active');
+    tabRow.appendChild(micTab);
 
-        // --- Cabinet: combined cab + speaker ---
-        if (comp.type === 'cabinet') {
-            state['cab'] = { enabled: true };
-            state['speaker'] = { enabled: true };
+    const micPanel = document.createElement('div');
+    micPanel.className = 'selector-panel active';
+    micPanel.id = 'panel-mic';
+    selectorArea.appendChild(micPanel);
 
-            // Tab
-            const tab = document.createElement('div');
-            tab.className = 'tab';
-            tab.dataset.tab = id;
-            tab.textContent = comp.label;
-            tabRow.appendChild(tab);
+    selectors.mic = new Selector(micPanel, {
+        options: micComp.options,
+        paramId: micComp.paramId,
+        groups: config.micGroups,
+        groupBarContainer: groupBarSlot,
+        onChange: (index, name) => { state.mic.selected = index; },
+    });
 
-            // Empty blend slot (blend knobs are inside the panel)
-            const blendSpacer = document.createElement('div');
-            blendSpacer.className = 'blend-slot';
-            blendRow.appendChild(blendSpacer);
+    // ---- CAB tab ----
 
-            // Panel with two columns
-            const panel = document.createElement('div');
-            panel.className = 'selector-panel';
-            panel.id = `panel-${id}`;
-            selectorArea.appendChild(panel);
+    const cabinet = config.components.cabinet;
+    const cabTab = makeTab('CAB', 'cab');
+    tabRow.appendChild(cabTab);
 
-            const cabinetPanel = document.createElement('div');
-            cabinetPanel.className = 'cabinet-panel';
-            panel.appendChild(cabinetPanel);
+    const cabPanel = document.createElement('div');
+    cabPanel.className = 'selector-panel';
+    cabPanel.id = 'panel-cab';
+    selectorArea.appendChild(cabPanel);
 
-            // Build each sub-column (cab and speaker)
-            for (const subId of ['cab', 'speaker']) {
-                const sub = comp[subId];
-                const col = document.createElement('div');
-                col.className = 'cabinet-col';
+    const cabinetDiv = document.createElement('div');
+    cabinetDiv.className = 'cabinet-panel';
+    cabPanel.appendChild(cabinetDiv);
 
-                const header = document.createElement('div');
-                header.className = 'cabinet-col-header';
-                const label = document.createElement('div');
-                label.className = 'cabinet-col-label';
-                label.textContent = sub.label;
-                header.appendChild(label);
+    for (const subId of ['cab', 'speaker']) {
+        const sub = cabinet[subId];
+        const col = document.createElement('div');
+        col.className = 'cabinet-col';
 
-                const blendSlot = document.createElement('div');
-                blendSlot.className = 'blend-slot';
-                header.appendChild(blendSlot);
-                blendKnobs[subId] = new Knob(blendSlot, {
-                    param: sub.blendId,
-                    min: 0, max: 100, step: 1,
-                    defaultValue: 100,
-                    className: 'blend-knob',
-                    formatValue: (v) => `${v}%`,
-                    toNorm: (v) => v / 100,
-                    fromNorm: (n) => n * 100,
-                });
+        const header = document.createElement('div');
+        header.className = 'cabinet-col-header';
+        const label = document.createElement('div');
+        label.className = 'cabinet-col-label';
+        label.textContent = sub.label;
+        header.appendChild(label);
+        col.appendChild(header);
 
-                col.appendChild(header);
+        selectors[subId] = new Selector(col, {
+            options: sub.options,
+            paramId: sub.paramId,
+            small: true,
+            onChange: (index, name) => { state[subId].selected = index; },
+        });
 
-                selectors[subId] = new Selector(col, {
-                    options: sub.options,
-                    paramId: sub.paramId,
-                    small: true,
-                    onChange: (index, name) => { state[subId].selected = index; },
-                });
+        cabinetDiv.appendChild(col);
+    }
 
-                cabinetPanel.appendChild(col);
-            }
-            continue;
-        }
+    // ---- Tab switching ----
 
-        // --- Normal component (mic, position) ---
-        state[id] = { enabled: true };
+    const tabs = [micTab, cabTab];
+    const panels = [micPanel, cabPanel];
 
-        // Tab
-        const tab = document.createElement('div');
-        tab.className = 'tab';
-        tab.dataset.tab = id;
-        tab.textContent = comp.label;
-        tabRow.appendChild(tab);
+    function switchTab(tabId) {
+        tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+        panels.forEach(p => p.classList.toggle('active', p.id === `panel-${tabId}`));
+        groupBarSlot.style.display = tabId === 'mic' ? '' : 'none';
+    }
 
-        // Blend knob slot
-        const blendSlot = document.createElement('div');
-        blendSlot.className = 'blend-slot';
-        blendRow.appendChild(blendSlot);
+    tabs.forEach(t => {
+        t.addEventListener('click', () => switchTab(t.dataset.tab));
+    });
 
-        blendKnobs[id] = new Knob(blendSlot, {
-            param: comp.blendId,
+    // ---- Blend panel ----
+
+    const blendConfig = [
+        { id: 'mic',      label: 'MIC', blendId: micComp.blendId,                     tab: 'mic' },
+        { id: 'cab',      label: 'CAB', blendId: cabinet.cab.blendId,                 tab: 'cab' },
+        { id: 'speaker',  label: 'SPK', blendId: cabinet.speaker.blendId,             tab: 'cab' },
+        { id: 'position', label: 'POS', blendId: config.components.position.blendId,  tab: 'cab' },
+    ];
+
+    for (const bc of blendConfig) {
+        const row = document.createElement('div');
+        row.className = 'blend-panel-row';
+
+        // Toggle square
+        const toggle = document.createElement('div');
+        toggle.className = 'blend-toggle';
+
+        // Label (clickable → switches tab)
+        const lbl = document.createElement('div');
+        lbl.className = 'blend-panel-label';
+        lbl.textContent = bc.label;
+
+        // Blend knob
+        const knobSlot = document.createElement('div');
+        knobSlot.className = 'blend-slot';
+
+        blendKnobs[bc.id] = new Knob(knobSlot, {
+            param: bc.blendId,
             min: 0, max: 100, step: 1,
             defaultValue: 100,
             className: 'blend-knob',
@@ -126,80 +139,49 @@ function buildUI(config) {
             fromNorm: (n) => n * 100,
         });
 
-        // Selector panel
-        const panel = document.createElement('div');
-        panel.className = 'selector-panel';
-        panel.id = `panel-${id}`;
-        selectorArea.appendChild(panel);
+        row.appendChild(toggle);
+        row.appendChild(lbl);
+        row.appendChild(knobSlot);
+        blendPanel.appendChild(row);
 
-        const selectorOpts = {
-            options: comp.options,
-            paramId: comp.paramId,
-            onChange: (index, name) => { state[id].selected = index; },
-        };
+        // Init enabled state from current blend value
+        const initBlend = blendKnobs[bc.id].getValue();
+        const enabled = initBlend > 0;
+        state[bc.id] = { enabled, _savedBlend: 100, selected: 0 };
+        toggle.classList.toggle('active', enabled);
+        blendKnobs[bc.id].setDisabled(!enabled);
+        if (selectors[bc.id]) selectors[bc.id].setDisabled(!enabled);
 
-        // Mic gets group support
-        if (id === 'mic' && config.micGroups) {
-            selectorOpts.groups = config.micGroups;
-        }
+        // Toggle handler
+        toggle.addEventListener('click', () => {
+            state[bc.id].enabled = !state[bc.id].enabled;
+            toggle.classList.toggle('active', state[bc.id].enabled);
 
-        selectors[id] = new Selector(panel, selectorOpts);
-    }
+            const knob = blendKnobs[bc.id];
+            knob.setDisabled(!state[bc.id].enabled);
+            if (selectors[bc.id]) selectors[bc.id].setDisabled(!state[bc.id].enabled);
 
-    // Activate first tab
-    const tabs = tabRow.querySelectorAll('.tab');
-    const panels = selectorArea.querySelectorAll('.selector-panel');
-    tabs[0]?.classList.add('active');
-    panels[0]?.classList.add('active');
-
-    function switchTab(tabId) {
-        tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
-        panels.forEach(p => p.classList.toggle('active', p.id === `panel-${tabId}`));
-    }
-
-    tabs.forEach(t => {
-        t.addEventListener('click', (e) => {
-            if (e.shiftKey) {
-                toggleComponent(t.dataset.tab);
-                e.stopPropagation();
-                e.preventDefault();
+            if (!state[bc.id].enabled) {
+                state[bc.id]._savedBlend = knob.getValue();
+                setParameterNormalized(bc.blendId, 0);
             } else {
-                switchTab(t.dataset.tab);
+                const restore = state[bc.id]._savedBlend ?? 100;
+                setParameterNormalized(bc.blendId, restore / 100);
             }
+
+            updateTabStates();
         });
-    });
 
-    // ---- Shift+click to toggle enable/disable ----
-
-    function toggleComponent(id) {
-        // Cabinet tab toggles both cab and speaker
-        const subIds = (id === 'cabinet') ? ['cab', 'speaker'] : [id];
-        for (const subId of subIds) {
-            if (!state[subId]) continue;
-            state[subId].enabled = !state[subId].enabled;
-            const knob = blendKnobs[subId];
-            if (!knob) continue;
-            knob.setDisabled(!state[subId].enabled);
-
-            const comp = config.components.cabinet?.[subId] || config.components[subId];
-            if (!state[subId].enabled) {
-                state[subId]._savedBlend = knob.getValue();
-                setParameterNormalized(comp.blendId, 0);
-            } else {
-                const restore = state[subId]._savedBlend ?? 100;
-                setParameterNormalized(comp.blendId, restore / 100);
-            }
-        }
+        // Label click → switch to that component's tab
+        lbl.addEventListener('click', () => switchTab(bc.tab));
     }
 
-    for (const [id, knob] of Object.entries(blendKnobs)) {
-        knob.el.addEventListener('click', (e) => {
-            if (e.shiftKey) {
-                toggleComponent(id);
-                e.stopPropagation();
-            }
-        });
+    function updateTabStates() {
+        micTab.classList.toggle('disabled', !state.mic.enabled);
+        const cabAllOff = !state.cab.enabled && !state.speaker.enabled && !state.position.enabled;
+        cabTab.classList.toggle('disabled', cabAllOff);
     }
+    updateTabStates();
 
     // ---- Master knobs ----
 
@@ -253,17 +235,19 @@ function buildUI(config) {
         fromNorm: (n) => n,
     });
 
-    // ---- Cab filter toggle ----
-
     new Toggle(document.getElementById('cab-filter-slot'), {
         param: 'cab_filter',
-        label: 'ON',
     });
-
-    // ---- Gain comp toggle ----
 
     new Toggle(document.getElementById('gain-comp-slot'), {
         param: 'gain_comp',
-        label: 'ON',
     });
+}
+
+function makeTab(label, id) {
+    const tab = document.createElement('div');
+    tab.className = 'tab';
+    tab.dataset.tab = id;
+    tab.textContent = label;
+    return tab;
 }

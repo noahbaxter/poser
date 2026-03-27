@@ -20,19 +20,30 @@ PoserProcessor::~PoserProcessor() {}
 
 // --- Parameters ---
 
+static int findCurveIndex(const CurveData::Curve* curves, int count, const char* name)
+{
+    for (int i = 0; i < count; ++i)
+        if (juce::CharacterFunctions::compareIgnoreCase(
+                juce::CharPointer_ASCII(curves[i].name),
+                juce::CharPointer_ASCII(name)) == 0)
+            return i;
+    return 0;
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    // Component selectors
+    // Component selectors (max derived from CurveData.h array sizes)
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"mic_select", 1}, "Mic Select", 0, 15, 11));  // SM57
+        juce::ParameterID{"mic_select", 1}, "Mic Select", 0, ::CurveData::kNumMics - 1,
+        findCurveIndex(::CurveData::kMics, ::CurveData::kNumMics, "SM57")));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"cab_select", 1}, "Cab Select", 0, 4, 0));    // Flat
+        juce::ParameterID{"cab_select", 1}, "Cab Select", 0, ::CurveData::kNumCabs - 1, 0));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"speaker_select", 1}, "Speaker Select", 0, 8, 0));  // Flat
+        juce::ParameterID{"speaker_select", 1}, "Speaker Select", 0, ::CurveData::kNumSpeakers - 1, 0));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"position_select", 1}, "Position Select", 0, 12, 0));  // Center
+        juce::ParameterID{"position_select", 1}, "Position Select", 0, ::CurveData::kNumPositions - 1, 0));
 
     // Component blends
     params.push_back(std::make_unique<juce::AudioParameterFloat>(

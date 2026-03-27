@@ -8,36 +8,45 @@
 </head>
 <body>
     <div class="plugin">
-        <!-- Built dynamically from backend data -->
-        <div class="tab-row" id="tab-row"></div>
-        <div class="blend-row" id="blend-row"></div>
+        <div class="nav-bar">
+            <div class="tab-row" id="tab-row"></div>
+            <div class="group-bar-slot" id="group-bar-slot"></div>
+        </div>
         <div class="selector-area" id="selector-area"></div>
 
-        <!-- Bottom controls (fixed layout) -->
-        <div class="bottom-row">
-            <div class="master-group">
-                <div class="master-label">LO CUT</div>
-                <div class="master-slot" id="knob-low-cut"></div>
+        <div class="bottom-area">
+            <div class="controls-left">
+                <div class="controls-group">
+                    <div class="master-group">
+                        <div class="master-label">LO CUT</div>
+                        <div class="master-slot" id="knob-low-cut"></div>
+                    </div>
+                    <div class="master-group">
+                        <div class="master-label">HI CUT</div>
+                        <div class="master-slot" id="knob-high-cut"></div>
+                    </div>
+                    <div class="master-group">
+                        <div class="master-label">FLT</div>
+                        <div class="master-slot" id="cab-filter-slot"></div>
+                    </div>
+                </div>
+                <div class="controls-group">
+                    <div class="master-group">
+                        <div class="master-label">CMP</div>
+                        <div class="master-slot" id="gain-comp-slot"></div>
+                    </div>
+                    <div class="master-group">
+                        <div class="master-label">TRIM</div>
+                        <div class="master-slot" id="master-trim"></div>
+                    </div>
+                </div>
             </div>
-            <div class="master-group push-group">
-                <div class="master-label">SCALE</div>
-                <div class="master-slot" id="master-push"></div>
-            </div>
-            <div class="master-group">
-                <div class="master-label">TRIM</div>
-                <div class="master-slot" id="master-trim"></div>
-            </div>
-            <div class="master-group">
-                <div class="master-label">HI CUT</div>
-                <div class="master-slot" id="knob-high-cut"></div>
-            </div>
-            <div class="master-group">
-                <div class="master-label">CAB FILTER</div>
-                <div class="master-slot" id="cab-filter-slot"></div>
-            </div>
-            <div class="master-group">
-                <div class="master-label">GAIN COMP</div>
-                <div class="master-slot" id="gain-comp-slot"></div>
+            <div class="right-panel">
+                <div class="master-group push-group">
+                    <div class="master-label">SCALE</div>
+                    <div class="master-slot" id="master-push"></div>
+                </div>
+                <div class="blend-panel" id="blend-panel"></div>
             </div>
         </div>
     </div>

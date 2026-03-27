@@ -4,11 +4,11 @@
     --plugin-pad-y: 12px;
 
     /* Ring selector */
-    --ring-size: 340px;
-    --ring-radius: 105px;
-    --ring-knob: 140px;
-    --ring-indicator: 18px;
-    --ring-indicator-offset: 10px;
+    --ring-size: 300px;
+    --ring-radius: 92px;
+    --ring-knob: 120px;
+    --ring-indicator: 16px;
+    --ring-indicator-offset: 8px;
     --ring-font: 20px;
     --ring-font-active: 22px;
 
@@ -32,19 +32,20 @@
 
     /* Master knobs */
     --master-knob: 48px;
+    --master-knob-gap: 2px;
     --master-indicator: 7px;
     --master-indicator-offset: 5px;
-    --master-knob-push: 56px;
-    --master-indicator-push: 8px;
-    --master-indicator-push-offset: 6px;
+    --master-knob-push: 64px;
+    --master-indicator-push: 9px;
+    --master-indicator-push-offset: 7px;
 
     /* Tabs */
-    --tab-font: 13px;
-    --tab-w: 80px;
-    --tab-pad-y: 6px;
+    --tab-font: 14px;
+    --tab-w: 100px;
+    --tab-pad-y: 7px;
 
     /* Group buttons */
-    --group-font: 9px;
+    --group-font: 12px;
 
     /* Toggle buttons */
     --toggle-size: 36px;
@@ -53,8 +54,34 @@
     /* Labels */
     --label-font: 10px;
 
-    /* Bottom row */
+    /* Bottom area */
     --bottom-gap: 16px;
+    --bottom-pad: 8px;
+    --separator-gap: 12px;
+
+    /* Right panel */
+    --panel-gap: 6px;
+
+    /* Blend panel */
+    --blend-toggle: 14px;
+    --blend-panel-gap: 4px;
+    --blend-panel-label-w: 30px;
+
+    /* Toggle strip */
+    --toggle-strip-h: 3px;
+    --toggle-strip-offset: 7px;
+
+    /* Shared */
+    --radius: 4px;
+    --letter-spacing: 2px;
+    --knob-hit-expand: 8px;
+
+    /* Group bar */
+    --group-pad-y: 4px;
+
+    /* Cabinet columns */
+    --cabinet-gap: 4px;
+    --cabinet-header-gap: 8px;
 
     /* Tooltip */
     --tooltip-font: 12px;
@@ -88,16 +115,22 @@ html, body {
     gap: 0;
 }
 
-/* --- Tab row --- */
+/* --- Nav bar (tabs + group buttons) --- */
+
+.nav-bar {
+    display: flex;
+    flex-direction: column;
+    align-self: center;
+    width: fit-content;
+}
 
 .tab-row {
     display: flex;
-    justify-content: center;
     gap: 0;
-    padding-bottom: 0;
 }
 
 .tab {
+    flex: 1;
     font-size: var(--tab-font);
     font-weight: 900;
     letter-spacing: 3px;
@@ -106,9 +139,9 @@ html, body {
     cursor: pointer;
     padding: var(--tab-pad-y) 0;
     transition: all 0.15s;
-    width: var(--tab-w);
+    min-width: var(--tab-w);
     text-align: center;
-    border-radius: 4px;
+    border-radius: var(--radius);
     background: #ddd;
 }
 
@@ -122,17 +155,11 @@ html, body {
     color: #fff;
 }
 
-
-/* --- Blend knobs row --- */
-
-.blend-row {
-    display: flex;
-    justify-content: center;
-    gap: 0;
-    padding: 6px 0 6px;
-    position: relative;
-    z-index: 10;
+.tab.disabled {
+    opacity: 0.35;
 }
+
+/* --- Blend knobs --- */
 
 .blend-slot {
     position: relative;
@@ -275,6 +302,13 @@ html, body {
     border-radius: 50%;
 }
 
+/* --- Disabled selector --- */
+
+.selector-wrap.disabled {
+    opacity: 0.25;
+    pointer-events: none;
+}
+
 /* --- Small selector (cabinet sub-selectors) --- */
 
 .selector-wrap.small {
@@ -320,8 +354,8 @@ html, body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 4px 0;
-    gap: 4px;
+    padding: var(--cabinet-gap) 0;
+    gap: var(--cabinet-gap);
     overflow: hidden;
     min-width: 0;
 }
@@ -334,13 +368,13 @@ html, body {
 .cabinet-col-header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--cabinet-header-gap);
 }
 
 .cabinet-col-label {
     font-size: var(--label-font);
     font-weight: 900;
-    letter-spacing: 2px;
+    letter-spacing: var(--letter-spacing);
     color: #bbb;
     text-transform: uppercase;
 }
@@ -364,7 +398,7 @@ html, body {
     position: relative;
     font-size: var(--compact-font);
     padding: 3px 12px;
-    border-radius: 4px;
+    border-radius: var(--radius);
 }
 
 .selector-wrap.compact .selector-option.active {
@@ -381,30 +415,116 @@ html, body {
     color: #fff;
 }
 
-/* --- Bottom row --- */
+/* --- Bottom area --- */
 
-.bottom-row {
+.bottom-area {
+    display: flex;
+    align-items: center;
+    padding-top: var(--bottom-pad);
+    border-top: 1px solid #eee;
+    position: relative;
+    z-index: 10;
+}
+
+.controls-left {
+    flex: 1;
     display: flex;
     justify-content: center;
     align-items: center;
     gap: var(--bottom-gap);
-    padding-top: 8px;
-    border-top: 1px solid #eee;
-    position: relative;
-    z-index: 10;
+}
+
+.controls-group {
+    display: flex;
+    align-items: center;
+    gap: var(--bottom-gap);
+}
+
+.controls-group + .controls-group {
+    margin-left: var(--separator-gap);
+    padding-left: var(--separator-gap);
+    border-left: 1px solid #eee;
+}
+
+/* --- Right panel (scale + blend) --- */
+
+.right-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--panel-gap);
+    border-left: 1px solid #eee;
+    padding-left: var(--separator-gap);
+    margin-left: var(--separator-gap);
+    padding-top: var(--bottom-pad);
+    padding-bottom: var(--bottom-pad);
+    /* SCALE group pokes into selector area by its full container height + padding */
+    margin-top: calc(-1 * (var(--master-knob-push) + var(--master-knob-gap) + var(--label-font) + var(--panel-gap) + var(--bottom-pad)));
+}
+
+/* --- Blend panel --- */
+
+.blend-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--blend-panel-gap);
+}
+
+.blend-panel-row {
+    display: flex;
+    align-items: center;
+    gap: var(--panel-gap);
+}
+
+.blend-panel .blend-slot {
+    width: auto;
+}
+
+.blend-toggle {
+    width: var(--blend-toggle);
+    height: var(--blend-toggle);
+    border: 2px solid #ccc;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+    flex-shrink: 0;
+}
+
+.blend-toggle:hover {
+    border-color: #999;
+}
+
+.blend-toggle.active {
+    background: #000;
+    border-color: #000;
+}
+
+.blend-panel-label {
+    font-size: var(--label-font);
+    font-weight: 900;
+    letter-spacing: var(--letter-spacing);
+    color: #888;
+    text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
+    width: var(--blend-panel-label-w);
+}
+
+.blend-panel-label:hover {
+    color: #000;
 }
 
 .master-group {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: var(--master-knob-gap);
 }
 
 .master-label {
     font-size: var(--label-font);
     font-weight: 900;
-    letter-spacing: 2px;
+    letter-spacing: var(--letter-spacing);
     color: #bbb;
     text-transform: uppercase;
     order: 2;
@@ -421,7 +541,7 @@ html, body {
 .master-knob::before {
     content: '';
     position: absolute;
-    inset: -8px;
+    inset: calc(-1 * var(--knob-hit-expand));
     z-index: 1;
 }
 
@@ -471,56 +591,80 @@ html, body {
 .selector-group-bar {
     display: flex;
     justify-content: center;
-    gap: 6px;
-    margin-bottom: 4px;
+    gap: 0;
     position: relative;
     z-index: 5;
+    padding: var(--group-pad-y) 0;
 }
 
 .selector-group-btn {
+    flex: 1;
     font-size: var(--group-font);
     font-weight: 900;
-    letter-spacing: 1px;
+    letter-spacing: var(--letter-spacing);
     text-transform: uppercase;
-    color: #999;
-    padding: 3px 8px;
-    border-radius: 3px;
+    color: #888;
+    padding: var(--group-pad-y) 0;
+    border-radius: var(--radius);
     cursor: pointer;
     user-select: none;
-    transition: color 0.1s, background 0.1s;
+    transition: all 0.15s;
+    background: #ddd;
+    text-align: center;
 }
 
 .selector-group-btn:hover {
-    color: #333;
+    background: #ccc;
+    color: #555;
 }
 
 .selector-group-btn.active {
-    color: #000;
-    background: #e0e0e0;
+    background: #000;
+    color: #fff;
 }
 
 /* --- Toggle button --- */
 
 .toggle-btn {
+    position: relative;
     width: var(--toggle-size);
     height: var(--toggle-size);
     border-radius: 50%;
-    background: #333;
-    color: #666;
-    font-size: var(--toggle-font);
-    font-weight: 900;
-    letter-spacing: 1px;
+    background: #000;
+    cursor: pointer;
+    user-select: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    user-select: none;
-    transition: background 0.15s, color 0.15s;
 }
 
-.toggle-btn.active {
+.toggle-strip {
+    position: absolute;
+    bottom: var(--toggle-strip-offset);
+    left: 25%;
+    right: 25%;
+    height: var(--toggle-strip-h);
+    background: #333;
+    border-radius: 1px;
+    pointer-events: none;
+    transition: background 0.15s;
+}
+
+.toggle-btn.active .toggle-strip {
     background: #fff;
-    color: #000;
+}
+
+.toggle-text {
+    font-size: var(--toggle-font);
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: #555;
+    pointer-events: none;
+    margin-bottom: var(--panel-gap);
+}
+
+.toggle-btn.active .toggle-text {
+    color: #999;
 }
 
 /* --- Version label --- */

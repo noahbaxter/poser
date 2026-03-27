@@ -11,7 +11,8 @@ JUCE audio plugin. VST3/AU on macOS, VST3 on Windows, VST3/LV2/CLAP on Linux.
 ```bash
 ./scripts/build.sh              # Release build + install
 ./scripts/build.sh debug        # Debug build
-./scripts/standalone.sh         # Build and launch standalone app
+./scripts/build.sh standalone   # Build and launch standalone app
+./scripts/build.sh curves       # Regenerate curve data only
 ./scripts/watch.sh              # Auto-rebuild on src/web changes
 ./scripts/clean.sh              # Remove build artifacts
 ```

@@ -24,6 +24,7 @@
 - [ ] `feature` **Curve mode toggle in UI** — boost-only / cut-only / both. Parameter exists in backend, no UI control yet.
 
 - [ ] `feature` **Zero/low-latency mode** — fit the magnitude curve to a minimum-phase FIR or IIR biquad filter bank instead of FFT overlap-add. True zero-latency for tracking use. FFT mode stays as the "quality" option.
+- [ ] `idea` **Per-component-type curve scaling** — cab/speaker/position curves feel weaker than mic curves. May need normalization or scaling pass in compile.py to balance perceived intensity across component types. (2026-03-27)
 
 ## Icebox
 

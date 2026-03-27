@@ -4,22 +4,29 @@
 # Usage:
 #   ./scripts/build.sh                 # Build Release (default)
 #   ./scripts/build.sh debug           # Build Debug
+#   ./scripts/build.sh standalone      # Build and launch standalone app
+#   ./scripts/build.sh curves          # Regenerate curve data only
 #   ./scripts/build.sh clean           # Clean build artifacts
 #   ./scripts/build.sh uninstall       # Remove installed plugins
 #
 # Options:
 #   --install                          # Install to user library (default: on)
 #   --no-install                       # Skip installation
+#   --no-launch                        # (standalone) Build but don't launch
+#   --fg                               # (standalone) Launch in foreground
 
 set -e
 
 source "$(dirname "$0")/_common.sh"
 
 RELEASE_DIR="$PROJECT_ROOT/releases"
+STANDALONE_BUILD_DIR="$PROJECT_ROOT/build-standalone"
 
 # Parse arguments
 MODE="Release"
 INSTALL=true
+LAUNCH=true
+FOREGROUND=false
 
 for arg in "$@"; do
     case $arg in
@@ -38,24 +45,37 @@ for arg in "$@"; do
         curves|Curves|CURVES)
             MODE="Curves"
             ;;
+        standalone|Standalone|STANDALONE)
+            MODE="Standalone"
+            ;;
         --install)
             INSTALL=true
             ;;
         --no-install)
             INSTALL=false
             ;;
+        --no-launch)
+            LAUNCH=false
+            ;;
+        --fg|--foreground)
+            FOREGROUND=true
+            ;;
         --help|-h)
             echo "Usage: ./scripts/build.sh [mode] [options]"
             echo ""
             echo "Modes:"
-            echo "  debug     Build Debug configuration"
-            echo "  release   Build Release configuration (default)"
-            echo "  clean     Clean build artifacts"
-            echo "  uninstall Remove installed plugins"
+            echo "  debug       Build Debug configuration"
+            echo "  release     Build Release configuration (default)"
+            echo "  standalone  Build and launch standalone app"
+            echo "  curves      Regenerate curve data only"
+            echo "  clean       Clean build artifacts"
+            echo "  uninstall   Remove installed plugins"
             echo ""
             echo "Options:"
             echo "  --install      Install plugins to user library (default)"
             echo "  --no-install   Skip installation"
+            echo "  --no-launch    (standalone) Build without launching"
+            echo "  --fg           (standalone) Launch in foreground"
             exit 0
             ;;
     esac
@@ -131,7 +151,7 @@ fi
 case "$MODE" in
     Clean)
         echo -e "\n${YELLOW}Cleaning build artifacts...${NC}"
-        rm -rf "$BUILD_DIR"
+        rm -rf "$BUILD_DIR" "$STANDALONE_BUILD_DIR"
         echo -e "${GREEN}✓ Cleaned${NC}"
         ;;
 
@@ -140,6 +160,51 @@ case "$MODE" in
         rm -rf "$HOME/Library/Audio/Plug-Ins/VST3/$PLUGIN_NAME.vst3"
         rm -rf "$HOME/Library/Audio/Plug-Ins/Components/$PLUGIN_NAME.component"
         echo -e "${GREEN}✓ Uninstalled${NC}"
+        ;;
+
+    Standalone)
+        # Kill any running instance (prevents WebView caching issues)
+        pkill -f "Poser EQ.app" 2>/dev/null || true
+        sleep 0.5
+
+        if needs_reconfigure "$STANDALONE_BUILD_DIR"; then
+            echo -e "${YELLOW}Configuring CMake...${NC}"
+            CMAKE_OUTPUT=$(cmake -B "$STANDALONE_BUILD_DIR" -G Xcode \
+                -DCMAKE_OSX_ARCHITECTURES="arm64" \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
+                "$PROJECT_ROOT" 2>&1) || {
+                echo "$CMAKE_OUTPUT"
+                echo -e "${RED}CMake configuration failed${NC}"
+                exit 1
+            }
+            fix_ownership "$STANDALONE_BUILD_DIR"
+            echo -e "${GREEN}✓ CMake configured${NC}"
+        fi
+
+        echo -e "${YELLOW}Building standalone app...${NC}"
+        BUILD_OUTPUT=$(cmake --build "$STANDALONE_BUILD_DIR" --config Debug --target ${PLUGIN_NAME}_Standalone --parallel -- -quiet 2>&1) || {
+            echo "$BUILD_OUTPUT"
+            echo -e "${RED}Build failed${NC}"
+            exit 1
+        }
+        fix_ownership "$STANDALONE_BUILD_DIR"
+
+        APP_PATH="$STANDALONE_BUILD_DIR/${PLUGIN_NAME}_artefacts/Debug/Standalone/Poser EQ.app"
+        if [ ! -d "$APP_PATH" ]; then
+            echo -e "${RED}Build failed - app not found at $APP_PATH${NC}"
+            exit 1
+        fi
+
+        if [ "$LAUNCH" = true ]; then
+            if [ "$FOREGROUND" = true ]; then
+                echo -e "${GREEN}✓ Built. Launching in foreground (Ctrl+C to quit)...${NC}"
+                exec "$APP_PATH/Contents/MacOS/Poser EQ"
+            fi
+            echo -e "${GREEN}✓ Built. Launching...${NC}"
+            open "$APP_PATH"
+        else
+            echo -e "${GREEN}✓ Built.${NC}"
+        fi
         ;;
 
     Debug)

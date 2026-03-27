@@ -303,29 +303,6 @@ def generate_header():
                 db[i] = -slope_db_oct * np.log2(f / f3db)
         return (10.0 ** (db / 20.0)).tolist()
 
-    # "Flat" filter = average of all measured values (generic cab/speaker physics).
-    # The filter should always do something when toggled ON, even with Flat selection.
-    avg_hpf_f3db = np.mean([p[0] for p in cab_hpf_params.values()])
-    avg_hpf_slope = np.mean([p[1] for p in cab_hpf_params.values()])
-    avg_lpf_f3db = np.mean(list(speaker_lpf_params.values()))
-
-    avg_cab_hpf = build_hpf(avg_hpf_f3db, avg_hpf_slope)
-    avg_speaker_lpf = build_lpf(avg_lpf_f3db)
-
-    out.append(f"// Average cab HPF — {avg_hpf_f3db:.0f}Hz, {avg_hpf_slope:.0f}dB/oct (used for Flat selection)")
-    out.append("static constexpr float kCabHPF_Avg[] = {")
-    out.append(format_float_array(avg_cab_hpf))
-    out.append("};")
-    out.append("")
-    print(f"  Cab HPF Avg: -{avg_hpf_slope:.0f}dB/oct below {avg_hpf_f3db:.0f}Hz")
-
-    out.append(f"// Average speaker LPF — {avg_lpf_f3db:.0f}Hz, 12dB/oct (used for Flat selection)")
-    out.append("static constexpr float kSpeakerLPF_Avg[] = {")
-    out.append(format_float_array(avg_speaker_lpf))
-    out.append("};")
-    out.append("")
-    print(f"  Speaker LPF Avg: -12dB/oct above {avg_lpf_f3db:.0f}Hz")
-
     # Per-cab HPF arrays
     cab_hpf_names = sorted(cab_hpf_params.keys())
     for name in cab_hpf_names:
@@ -352,8 +329,8 @@ def generate_header():
         out.append("")
         print(f"  Speaker LPF {name}: -12dB/oct above {f3db:.0f}Hz")
 
-    # Cab HPF lookup table: Flat (average) + per-cab entries
-    cab_hpf_entries = ['    {"Flat", kCabHPF_Avg}']
+    # Cab HPF lookup table: per-cab entries (no Flat — toggled off via blend panel)
+    cab_hpf_entries = []
     for name in cab_hpf_names:
         ident = sanitize_ident(name)
         dname = re.sub(r"^\d+\s+", "", name)
@@ -363,10 +340,10 @@ def generate_header():
     out.append("};")
     out.append(f"static constexpr int kNumCabHPFs = {len(cab_hpf_entries)};")
     out.append("")
-    print(f"CabHPFs: {len(cab_hpf_entries)} (1 flat + {len(cab_hpf_names)} measured)")
+    print(f"CabHPFs: {len(cab_hpf_entries)}")
 
-    # Speaker LPF lookup table: Flat (average) + per-speaker entries
-    speaker_lpf_entries = ['    {"Flat", kSpeakerLPF_Avg}']
+    # Speaker LPF lookup table: per-speaker entries (no Flat — toggled off via blend panel)
+    speaker_lpf_entries = []
     for name in speaker_lpf_names:
         ident = sanitize_ident(name)
         speaker_lpf_entries.append(f'    {{"{name}", kSpeakerLPF_{ident}}}')
@@ -375,15 +352,7 @@ def generate_header():
     out.append("};")
     out.append(f"static constexpr int kNumSpeakerLPFs = {len(speaker_lpf_entries)};")
     out.append("")
-    print(f"SpeakerLPFs: {len(speaker_lpf_entries)} (1 flat + {len(speaker_lpf_names)} measured)")
-
-    # Flat character curve (all zeros) — used as index 0 for cab and speaker
-    flat_character = [0.0] * num_bins
-    out.append("// Flat character — no tonal coloration.")
-    out.append("static constexpr float kCharacter_Flat[] = {")
-    out.append(format_float_array(flat_character))
-    out.append("};")
-    out.append("")
+    print(f"SpeakerLPFs: {len(speaker_lpf_entries)}")
 
     for comp_type in ("cab", "speaker", "mic", "position"):
         if comp_type not in components:
@@ -405,9 +374,6 @@ def generate_header():
             out.append("")
 
         entries = []
-        # Prepend "Flat" for cab and speaker (index 0 = no character)
-        if comp_type in ("cab", "speaker"):
-            entries.append('    {"Flat", kCharacter_Flat}')
         for name in sorted_names:
             ident = sanitize_ident(name)
             var_name = f"k{singular}_{ident}"
@@ -422,29 +388,82 @@ def generate_header():
         print(f"{plural}: {len(entries)}")
 
     # Mic groups — map group names to indices into kMics[] (alphabetically sorted)
+    # Tagged mics (e.g. "kick") are sorted to be adjacent within their group.
     if "mic" in components:
         mic_sorted = sorted(components["mic"].keys())
+
+        # Collect tags per mic index
+        mic_tags = {}  # global_index → tag string
+        for slug, info in MICS.items():
+            tag = info.get("tag")
+            if tag:
+                display = info["name"]
+                if display in mic_sorted:
+                    mic_tags[mic_sorted.index(display)] = tag
+
+        out.append("struct MicGroupTag {")
+        out.append("    const char* name;")
+        out.append("    int start;  // first local index (inclusive)")
+        out.append("    int end;    // last local index (inclusive)")
+        out.append("};")
+        out.append("")
         out.append("struct MicGroup {")
         out.append("    const char* name;")
         out.append("    const int* indices;")
         out.append("    int count;")
+        out.append("    const MicGroupTag* tags;")
+        out.append("    int numTags;")
         out.append("};")
         out.append("")
 
         group_entries = []
         for group_name in MIC_GROUPS:
             # Find which mic indices belong to this group (mics can be in multiple groups)
-            indices = []
+            tagged = []    # (global_index, tag)
+            untagged = []  # global_index
             for slug, info in MICS.items():
                 if group_name in info.get("groups", []):
                     display = info["name"]
                     if display in mic_sorted:
-                        indices.append(mic_sorted.index(display))
-            indices.sort()
+                        idx = mic_sorted.index(display)
+                        tag = info.get("tag")
+                        if tag:
+                            tagged.append((idx, tag))
+                        else:
+                            untagged.append(idx)
+
+            # Sort: tagged first (grouped by tag, then alphabetically), then untagged
+            tagged.sort(key=lambda t: (t[1], t[0]))
+            untagged.sort()
+            ordered = [t[0] for t in tagged] + untagged
+
             ident = sanitize_ident(group_name)
             arr_name = f"kMicGroup_{ident}_indices"
-            out.append(f"static constexpr int {arr_name}[] = {{ {', '.join(str(i) for i in indices)} }};")
-            group_entries.append(f'    {{"{group_name}", {arr_name}, {len(indices)}}}')
+            out.append(f"static constexpr int {arr_name}[] = {{ {', '.join(str(i) for i in ordered)} }};")
+
+            # Build tag ranges (contiguous runs of same tag in local indices)
+            tag_ranges = []
+            if tagged:
+                cur_tag = tagged[0][1]
+                start = 0
+                for local_i, (_, tag) in enumerate(tagged):
+                    if tag != cur_tag:
+                        tag_ranges.append((cur_tag, start, local_i - 1))
+                        cur_tag = tag
+                        start = local_i
+                tag_ranges.append((cur_tag, start, len(tagged) - 1))
+
+            tag_arr_name = f"kMicGroup_{ident}_tags"
+            if tag_ranges:
+                tag_entries = []
+                for tag, s, e in tag_ranges:
+                    tag_entries.append(f'    {{"{tag}", {s}, {e}}}')
+                out.append(f"static constexpr MicGroupTag {tag_arr_name}[] = {{")
+                out.append(",\n".join(tag_entries))
+                out.append("};")
+                group_entries.append(f'    {{"{group_name}", {arr_name}, {len(ordered)}, {tag_arr_name}, {len(tag_ranges)}}}')
+            else:
+                group_entries.append(f'    {{"{group_name}", {arr_name}, {len(ordered)}, nullptr, 0}}')
 
         out.append("")
         out.append(f"static constexpr MicGroup kMicGroups[] = {{")
