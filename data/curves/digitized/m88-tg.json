@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/1009",
-  "mic_id": "1009",
-  "mic_name": "Beyerdynamic M88 TG",
   "slug": "m88-tg",
-  "mode": "single",
+  "name": "M88 TG",
   "hand_edited": true,
   "curves": {
     "single": {

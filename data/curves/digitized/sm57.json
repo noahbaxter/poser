@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0006",
-  "mic_id": "0006",
-  "mic_name": "Shure SM57",
   "slug": "sm57",
-  "mode": "single",
+  "name": "SM57",
   "hand_edited": false,
   "curves": {
     "single": {

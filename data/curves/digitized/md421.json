@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0552",
-  "mic_id": "0552",
-  "mic_name": "Sennheiser MD421",
   "slug": "md421",
-  "mode": "single",
+  "name": "MD421",
   "hand_edited": false,
   "curves": {
     "single": {

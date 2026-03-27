@@ -33,9 +33,10 @@ Offline Python tools for generating curve data. All images go to `/tmp/poser/`.
 ```
 tools/
   curves/
-    digitize.py              # Download source images, export/digitize masks
-    build.py                 # ATK + digitized → extracted_components.json
-    generate_header.py       # extracted_components.json → src/CurveData.h
+    manage.py                # Entry point: prepare / build
+    registry.py              # Mic definitions — edit this to add/remove mics
+    digitize.py              # Extraction engine (mask export, curve digitization)
+    compile.py               # ATK + digitized → extracted_components.json → CurveData.h
     validate.py              # ATK vs digitized agreement check
   ir/
     inventory.py             # Index IR collection from external drive
@@ -61,23 +62,23 @@ data/
 ### Quick version
 
 ```bash
-# 1. Add mic to MIC_SLUGS + RH_MIC_NAMES in digitize.py
+# 1. Add mic to MICS in tools/curves/registry.py
 # 2. Download source image and export mask
-python3 tools/curves/digitize.py prepare
+python3 tools/curves/manage.py prepare
 # 3. If mask has multiple curves (proximity variants, switch positions):
 #    - Open data/curves/masks/{slug}.png in an image editor
 #    - Duplicate it — erase unwanted lines in each copy
 #    - Save as {slug}_1.png, {slug}_2.png, etc.
-# 4. Digitize all masks → JSON
-python3 tools/curves/digitize.py build
-# 5. Add mic to DIGITIZED_MICS in build.py
-# 6. Compile into plugin data
-python3 tools/curves/build.py
-python3 tools/curves/generate_header.py
-# 7. Rebuild plugin and listen
+# 4. Build everything (digitize → compile → generate header)
+python3 tools/curves/manage.py build
+# 5. Rebuild plugin and listen
 ```
 
 ### Details
+
+**Registry** (`tools/curves/registry.py`) is the single source of truth for all
+mic definitions. Each entry maps a slug to a display name, RecordingHacks ID,
+and optional ATK CSV. Edit this one file to add or remove mics.
 
 **Source images** come from RecordingHacks single-mic graphs (476x159 RGBA PNGs
 with red curves). `prepare` downloads them to `data/curves/sources/{slug}.png`
@@ -93,9 +94,6 @@ in each. When `build` sees `_N` variants, it digitizes each as a separate curve.
 **ATK mics** (SM57, SM58, SM7B, C414, U87) use lab-measured CSVs as ground truth
 and take priority over digitized data. To validate digitized curves against ATK:
 `python3 tools/curves/validate.py`
-
-**Naming**: everything uses mic slugs (e.g. `sm57`, `beta-52a`, `m88-tg`), not
-RecordingHacks numeric IDs. Slugs are defined in `MIC_SLUGS` in `digitize.py`.
 
 ## Adding Web Assets
 

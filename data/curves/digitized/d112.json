@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0335",
-  "mic_id": "0335",
-  "mic_name": "AKG D112",
   "slug": "d112",
-  "mode": "single",
+  "name": "D112",
   "hand_edited": true,
   "curves": {
     "single": {

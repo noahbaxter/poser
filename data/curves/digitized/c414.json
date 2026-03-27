@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0307",
-  "mic_id": "0307",
-  "mic_name": "AKG C414 XL II",
   "slug": "c414",
-  "mode": "single",
+  "name": "C414",
   "hand_edited": true,
   "curves": {
     "single": {

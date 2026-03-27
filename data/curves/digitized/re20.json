@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0417",
-  "mic_id": "0417",
-  "mic_name": "Electro-Voice RE20",
   "slug": "re20",
-  "mode": "single",
+  "name": "RE20",
   "hand_edited": true,
   "curves": {
     "single": {

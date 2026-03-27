@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0429",
-  "mic_id": "0429",
-  "mic_name": "AEA R84",
   "slug": "r84",
-  "mode": "single",
+  "name": "R84",
   "hand_edited": false,
   "curves": {
     "single": {

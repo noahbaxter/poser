@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0567",
-  "mic_id": "0567",
-  "mic_name": "Audix D6",
   "slug": "d6",
-  "mode": "single",
+  "name": "D6",
   "hand_edited": false,
   "curves": {
     "single": {

@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0255",
-  "mic_id": "0255",
-  "mic_name": "Shure SM7B",
   "slug": "sm7b",
-  "mode": "single",
+  "name": "SM7B",
   "hand_edited": true,
   "curves": {
     "single": {

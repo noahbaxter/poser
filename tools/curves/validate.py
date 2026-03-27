@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Validate digitized mic curves against ATK ground truth.
 
-For the 5 mics where ATK lab measurements exist, overlays ATK vs digitized
+For the mics where ATK lab measurements exist, overlays ATK vs digitized
 (normalized at 1kHz) and reports RMS agreement.
 
-Outputs:
-  /tmp/poser/validation_report.png  — overlay plots
-  stdout                            — summary table
+Usage:
+    python3 tools/curves/validate.py
 """
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from registry import MICS
 
 REPO = Path(__file__).resolve().parent.parent.parent
 TMP = Path("/tmp/poser")
@@ -24,15 +27,6 @@ BANDS = [
     (2000, 8000, "Upper-mid"),
     (8000, 20000, "High"),
 ]
-
-# Mics with both ATK and digitized data
-MICS = {
-    "SM57": {"slug": "sm57", "atk_csv": "shure_sm57.csv"},
-    "SM58": {"slug": "sm58", "atk_csv": "shure_sm58.csv"},
-    "SM7B": {"slug": "sm7b", "atk_csv": "shure_sm7b.csv"},
-    "C414": {"slug": "c414", "atk_csv": "akg_c414_xlii.csv"},
-    "U87":  {"slug": "u87",  "atk_csv": "neumann_u87.csv"},
-}
 
 
 def normalize_at_1k(freqs, dbs):
@@ -82,16 +76,18 @@ def rms_between(f1, db1, f2, db2, lo=20, hi=20000):
 def main():
     TMP.mkdir(parents=True, exist_ok=True)
 
-    fig, axes = plt.subplots(1, len(MICS), figsize=(4 * len(MICS), 4))
+    atk_mics = [(slug, info) for slug, info in sorted(MICS.items()) if info.get("atk_csv")]
+    fig, axes = plt.subplots(1, len(atk_mics), figsize=(4 * len(atk_mics), 4))
 
     print(f"{'Mic':<8} {'RMS':>6} {'Low':>6} {'Mid':>6} {'UMid':>6} {'High':>6}")
     print("-" * 45)
 
-    for i, (name, info) in enumerate(MICS.items()):
+    for i, (slug, info) in enumerate(atk_mics):
         ax = axes[i]
+        name = info["name"]
 
         atk = load_atk(info["atk_csv"])
-        dig = load_digitized(info["slug"])
+        dig = load_digitized(slug)
 
         if atk is None or dig is None:
             ax.set_title(f"{name} (missing data)")

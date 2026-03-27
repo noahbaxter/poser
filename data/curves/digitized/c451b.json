@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0323",
-  "mic_id": "0323",
-  "mic_name": "AKG C451 B",
   "slug": "c451b",
-  "mode": "single",
+  "name": "C451 B",
   "hand_edited": true,
   "curves": {
     "single": {

@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/1184",
-  "mic_id": "1184",
-  "mic_name": "Sennheiser e906",
   "slug": "e906",
-  "mode": "single",
+  "name": "e906",
   "hand_edited": true,
   "curves": {
     "single": {

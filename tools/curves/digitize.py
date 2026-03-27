@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
-"""Digitize microphone frequency response curves from RecordingHacks single-mic PNGs.
+"""Curve extraction engine — image analysis, mask export, curve digitization.
 
-Downloads single-mic graphs from recordinghacks.com, extracts red curve pixels
-as masks for hand-editing, then digitizes the cleaned masks into frequency/dB data.
-
-Usage:
-    python3 tools/curves/digitize.py prepare   # Download sources, export masks
-    python3 tools/curves/digitize.py build     # Digitize masks → JSON curves
+Internal module used by manage.py. Not meant to be run directly.
 """
 
-import argparse
 import json
 import math
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -20,54 +13,13 @@ import numpy as np
 import requests
 from PIL import Image
 
+from registry import MICS
+
 
 # --- Constants ---
 
 DB_TOP = 20.0
 DB_BOTTOM = -20.0
-
-# RecordingHacks ID -> mic name
-RH_MIC_NAMES = {
-    "0006": "Shure SM57",
-    "0219": "Shure Beta 52A",
-    "0253": "Shure SM58",
-    "0255": "Shure SM7B",
-    "0307": "AKG C414 XL II",
-    "0323": "AKG C451 B",
-    "0335": "AKG D112",
-    "0417": "Electro-Voice RE20",
-    "0429": "AEA R84",
-    "0552": "Sennheiser MD421",
-    "0567": "Audix D6",
-    "0701": "Coles 4038",
-    "0860": "Neumann U87 Ai",
-    "1009": "Beyerdynamic M88 TG",
-    "1091": "Neumann KM184",
-    "1184": "Sennheiser e906",
-}
-
-# Canonical slug for each mic (used for filenames)
-MIC_SLUGS = {
-    "0006": "sm57",
-    "0219": "beta-52a",
-    "0253": "sm58",
-    "0255": "sm7b",
-    "0307": "c414",
-    "0323": "c451b",
-    "0335": "d112",
-    "0417": "re20",
-    "0429": "r84",
-    "0552": "md421",
-    "0567": "d6",
-    "0701": "coles-4038",
-    "0860": "u87",
-    "1009": "m88-tg",
-    "1091": "km184",
-    "1184": "e906",
-}
-
-# Reverse lookup: slug -> RH ID
-SLUG_TO_ID = {v: k for k, v in MIC_SLUGS.items()}
 
 
 # --- Plot geometry ---
@@ -196,6 +148,24 @@ def pixel_to_freq(x, A, B):
 
 def pixel_to_db(y, top, bottom):
     return DB_TOP - (y - top) * (DB_TOP - DB_BOTTOM) / (bottom - top)
+
+def _cluster_ys(ys, gap=8):
+    """Cluster y values into groups separated by gaps.
+
+    Returns list of clusters, each a list of y values.
+    A gap of 8px (~2.5dB) separates distinct lines.
+    """
+    if not ys:
+        return []
+    ys_sorted = sorted(ys)
+    clusters = [[ys_sorted[0]]]
+    for y in ys_sorted[1:]:
+        if y - clusters[-1][-1] <= gap:
+            clusters[-1].append(y)
+        else:
+            clusters.append([y])
+    return clusters
+
 
 # --- Data conversion ---
 
@@ -568,14 +538,13 @@ def download_single_graph(mic_id, save_path):
 
 # --- Mask export ---
 
-def _export_mask(image_path, mic_id, out_dir, mask_path=None):
+def _export_mask(image_path, slug, out_dir, mask_path=None):
     """Export the red curve pixels as a clean PNG for manual editing.
 
     Outputs a white image with red pixels only (no grid, no background, no text).
     The image is the same dimensions as the plot area. Calibration JSON is saved
     alongside for use by _digitize_mask.
     """
-    slug = MIC_SLUGS.get(mic_id, mic_id)
     img = Image.open(image_path).convert("RGBA")
     px = img.load()
     w, h = img.size
@@ -650,19 +619,18 @@ def _export_mask(image_path, mic_id, out_dir, mask_path=None):
     print(f"  Mask: {mask_path.name} ({plot_w}x{plot_h}, {red_count} red pixels)")
 
 
-def _digitize_mask(mask_path, mic_id, cal_dir):
+def _digitize_mask(mask_path, slug, cal_dir):
     """Digitize a cleaned mask PNG using saved calibration.
 
     The mask is a white image with red pixels only — same dimensions as the
     original plot area. Calibration (A, B, bounds) comes from the JSON saved
     alongside the original mask export.
     """
-    slug = MIC_SLUGS.get(mic_id, mic_id)
     cal_path = cal_dir / f"{slug}.json"
     if not cal_path.exists():
         print(f"ERROR: Calibration file not found: {cal_path}")
         print(f"  Run 'prepare' first to generate it.")
-        sys.exit(1)
+        raise SystemExit(1)
 
     with open(cal_path) as f:
         cal = json.load(f)
@@ -819,14 +787,16 @@ def cmd_prepare(args):
 
     summary = []
 
-    for mic_id, slug in sorted(MIC_SLUGS.items(), key=lambda x: x[1]):
-        name = RH_MIC_NAMES[mic_id]
+    for slug in sorted(MICS):
+        info = MICS[slug]
+        name = info["name"]
+        rh_id = info["rh_id"]
         source_path = source_dir / f"{slug}.png"
 
         # Download if not cached
         if not source_path.exists():
             print(f"\n--- {name} ({slug}) ---")
-            download_single_graph(mic_id, source_path)
+            download_single_graph(rh_id, source_path)
         else:
             print(f"\n--- {name} ({slug}) --- [cached]")
 
@@ -840,7 +810,7 @@ def cmd_prepare(args):
             # Export base mask if missing
             mask_path = mask_dir / f"{slug}.png"
             if not mask_path.exists():
-                _export_mask(source_path, mic_id, mask_dir, mask_path)
+                _export_mask(source_path, slug, mask_dir, mask_path)
             else:
                 print(f"  Base mask: {mask_path.name} [exists]")
             summary.append((slug, name, "base_only", []))
@@ -884,8 +854,10 @@ def cmd_build(args):
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    for mic_id, slug in sorted(MIC_SLUGS.items(), key=lambda x: x[1]):
-        name = RH_MIC_NAMES[mic_id]
+    for slug in sorted(MICS):
+        info = MICS[slug]
+        name = info["name"]
+        rh_id = info["rh_id"]
         source_path = source_dir / f"{slug}.png"
         print(f"\n--- {name} ({slug}) ---")
 
@@ -901,23 +873,18 @@ def cmd_build(args):
             all_curves = []
             for mask_path in edited_masks:
                 print(f"  Mask: {mask_path.name}")
-                results = _digitize_mask(mask_path, mic_id, mask_dir)
+                results = _digitize_mask(mask_path, slug, mask_dir)
                 curves = _results_to_curve_list(results)
                 if curves:
-                    # Use the first (should be only) curve from each mask
                     all_curves.append(curves[0])
 
             if all_curves:
-                # Re-index
                 for i, c in enumerate(all_curves):
                     c["index"] = i
 
                 output = {
-                    "source": f"https://recordinghacks.com/graphs2.php/{mic_id}",
-                    "mic_id": mic_id,
-                    "mic_name": name,
                     "slug": slug,
-                    "mode": "single",
+                    "name": name,
                     "hand_edited": True,
                     "curves": {
                         "single": {
@@ -935,11 +902,8 @@ def cmd_build(args):
             curve_list = _results_to_curve_list(results)
 
             output = {
-                "source": f"https://recordinghacks.com/graphs2.php/{mic_id}",
-                "mic_id": mic_id,
-                "mic_name": name,
                 "slug": slug,
-                "mode": "single",
+                "name": name,
                 "hand_edited": False,
                 "curves": {},
             }
@@ -968,44 +932,9 @@ def cmd_build(args):
 
         # Comparison plot
         plot_path = tmp_dir / f"{slug}_comparison.png"
-        make_comparison_plot(source_path, output["curves"], plot_path, [mic_id])
+        make_comparison_plot(source_path, output["curves"], plot_path, [rh_id])
 
     print(f"\nDone. JSONs in {out_dir}/")
     print(f"Plots in {tmp_dir}/")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Digitize RecordingHacks frequency response curves",
-        epilog="Workflow: run 'prepare' → edit masks if needed → run 'build'",
-    )
-    sub = parser.add_subparsers(dest="command")
-
-    sub.add_parser("prepare",
-                    help="Download sources, export masks, report which need editing")
-    sub.add_parser("build",
-                    help="Digitize all masks → JSON curves")
-
-    # Legacy single-mic mode (for one-off use)
-    parser.add_argument("--single", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--mask", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--from-mask", type=Path, help=argparse.SUPPRESS)
-    parser.add_argument("--image", type=Path, help=argparse.SUPPRESS)
-    parser.add_argument("--output", type=Path, help=argparse.SUPPRESS)
-    parser.add_argument("id1", nargs="?", help=argparse.SUPPRESS)
-    parser.add_argument("id2", nargs="?", help=argparse.SUPPRESS)
-
-    args = parser.parse_args()
-
-    if args.command == "prepare":
-        cmd_prepare(args)
-    elif args.command == "build":
-        cmd_build(args)
-    elif args.command is None:
-        parser.print_help()
-    else:
-        parser.print_help()
-
-
-if __name__ == "__main__":
-    main()

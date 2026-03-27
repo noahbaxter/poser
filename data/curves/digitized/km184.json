@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/1091",
-  "mic_id": "1091",
-  "mic_name": "Neumann KM184",
   "slug": "km184",
-  "mode": "single",
+  "name": "KM184",
   "hand_edited": false,
   "curves": {
     "single": {

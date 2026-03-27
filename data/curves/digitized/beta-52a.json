@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0219",
-  "mic_id": "0219",
-  "mic_name": "Shure Beta 52A",
   "slug": "beta-52a",
-  "mode": "single",
+  "name": "Beta 52A",
   "hand_edited": true,
   "curves": {
     "single": {

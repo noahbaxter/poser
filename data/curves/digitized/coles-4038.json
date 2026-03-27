@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0701",
-  "mic_id": "0701",
-  "mic_name": "Coles 4038",
   "slug": "coles-4038",
-  "mode": "single",
+  "name": "Coles 4038",
   "hand_edited": false,
   "curves": {
     "single": {

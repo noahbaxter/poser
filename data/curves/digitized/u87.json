@@ -1,9 +1,6 @@
 {
-  "source": "https://recordinghacks.com/graphs2.php/0860",
-  "mic_id": "0860",
-  "mic_name": "Neumann U87 Ai",
   "slug": "u87",
-  "mode": "single",
+  "name": "U87",
   "hand_edited": true,
   "curves": {
     "single": {
