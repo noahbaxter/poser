@@ -5998,5 +5998,9 @@
         }
       ]
     }
-  }
+  },
+  "mic_names": [
+    "Shure SM57",
+    "Neumann U87 Ai"
+  ]
 }

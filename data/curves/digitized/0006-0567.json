@@ -3648,5 +3648,9 @@
         }
       ]
     }
-  }
+  },
+  "mic_names": [
+    "Shure SM57",
+    "Audix D6"
+  ]
 }

@@ -2188,5 +2188,9 @@
         }
       ]
     }
-  }
+  },
+  "mic_names": [
+    "Shure SM57",
+    "Shure Beta 52A"
+  ]
 }

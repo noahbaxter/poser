@@ -3820,5 +3820,9 @@
         }
       ]
     }
-  }
+  },
+  "mic_names": [
+    "Shure SM57",
+    "Neumann KM184"
+  ]
 }

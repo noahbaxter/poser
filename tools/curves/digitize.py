@@ -31,6 +31,26 @@ DB_BOTTOM = -20.0
 COLOR_THRESHOLD = 70
 BLEND_THRESHOLD = 160
 
+# RecordingHacks ID -> mic name
+RH_MIC_NAMES = {
+    "0006": "Shure SM57",
+    "0219": "Shure Beta 52A",
+    "0253": "Shure SM58",
+    "0255": "Shure SM7B",
+    "0307": "AKG C414 XL II",
+    "0323": "AKG C451 B",
+    "0335": "AKG D112",
+    "0417": "Electro-Voice RE20",
+    "0429": "AEA R84",
+    "0552": "Sennheiser MD421",
+    "0567": "Audix D6",
+    "0701": "Coles 4038",
+    "0860": "Neumann U87 Ai",
+    "1009": "Beyerdynamic M88 TG",
+    "1091": "Neumann KM184",
+    "1184": "Sennheiser e906",
+}
+
 
 def color_dist(c1, c2):
     """Euclidean distance between two RGB tuples."""
@@ -692,23 +712,35 @@ def make_comparison_plot(source_img_path, curves, out_path, mic_ids):
     ax_orig.axis("off")
 
     # Bottom: all digitized curves
-    base_colors = ["#f69410", "#9410a0"]  # orange, purple
+    base_colors = ["#f69410", "#9410a0", "#cc0000"]  # orange, purple, red
     line_styles = ["-", "--", ":", "-."]
 
-    for i, (key, label_prefix) in enumerate([("first", mic_ids[0]), ("second", mic_ids[1])]):
+    # Build key/label pairs based on what's in the data
+    key_labels = []
+    if "single" in curves:
+        key_labels.append(("single", mic_ids[0]))
+    else:
+        if "first" in curves:
+            key_labels.append(("first", mic_ids[0]))
+        if "second" in curves and len(mic_ids) > 1:
+            key_labels.append(("second", mic_ids[1]))
+
+    for i, (key, label_prefix) in enumerate(key_labels):
         if key not in curves:
             continue
         info = curves[key]
         for j, curve in enumerate(info["curves"]):
             pts = curve["data"]
+            if not pts:
+                continue
             freqs = [p["hz"] for p in pts]
             dbs = [p["db"] for p in pts]
             style = line_styles[j % len(line_styles)]
             alpha = 1.0 if j == 0 else 0.6
             lw = 1.5 if j == 0 else 1.0
             label = f"{label_prefix} #{j} ({len(pts)} pts)"
-            ax_dig.semilogx(freqs, dbs, color=base_colors[i], linewidth=lw,
-                            linestyle=style, alpha=alpha, label=label)
+            ax_dig.semilogx(freqs, dbs, color=base_colors[i % len(base_colors)],
+                            linewidth=lw, linestyle=style, alpha=alpha, label=label)
 
     ax_dig.set_xlim(20, 20000)
     ax_dig.set_ylim(-20, 20)
@@ -726,7 +758,205 @@ def make_comparison_plot(source_img_path, curves, out_path, mic_ids):
     print(f"  Comparison plot: {out_path}")
 
 
+# --- Single-mic graph support ---
+
+def digitize_single(image_path):
+    """Digitize a single-mic RecordingHacks graph (476x159, RGBA, red curve).
+
+    These are simpler than comparison graphs: one red curve on white background,
+    RGBA mode (not paletted), axis from ~10Hz to ~40kHz.
+
+    Returns dict with same structure as digitize() for consistency.
+    """
+    print(f"\nAnalyzing single-mic graph: {image_path}")
+    img = Image.open(image_path).convert("RGBA")
+    w, h = img.size
+    print(f"  Image: {w}x{h}")
+    px = img.load()
+
+    # Find plot bounds from dark lines
+    h_lines = []
+    for y in range(h):
+        dark = sum(1 for x in range(w) if px[x, y][0] < 50 and px[x, y][1] < 50 and px[x, y][2] < 50)
+        if dark > w * 0.5:
+            h_lines.append(y)
+    v_lines = []
+    for x in range(w):
+        dark = sum(1 for y in range(h) if px[x, y][0] < 50 and px[x, y][1] < 50 and px[x, y][2] < 50)
+        if dark > h * 0.3:
+            v_lines.append(x)
+
+    # Cluster
+    def cluster(vals):
+        if not vals:
+            return []
+        groups = [[vals[0]]]
+        for v in vals[1:]:
+            if v - groups[-1][-1] <= 2:
+                groups[-1].append(v)
+            else:
+                groups.append([v])
+        return [int(sum(g) / len(g)) for g in groups]
+
+    h_bounds = cluster(h_lines)
+    v_bounds = cluster(v_lines)
+
+    if len(h_bounds) < 2 or len(v_bounds) < 2:
+        print("  ERROR: Could not detect plot bounds")
+        return {}
+
+    top, bottom = h_bounds[0], h_bounds[-1]
+    left, right = v_bounds[0], v_bounds[-1]
+    print(f"  Plot bounds: x=[{left}, {right}], y=[{top}, {bottom}]")
+
+    # Calibrate X axis from internal gridlines (decade boundaries)
+    # Single graphs have gridlines at 100Hz, 1kHz, 10kHz
+    internal_v = [x for x in v_bounds if left < x < right]
+    if len(internal_v) >= 2:
+        # First two internal gridlines are typically 100Hz and 1kHz (or similar decades)
+        # Use the spacing between them = 1 decade
+        A = internal_v[1] - internal_v[0]  # pixels per decade
+        B = internal_v[0] - A * math.log10(100)  # assuming first internal = 100Hz
+        # Verify: third internal should be 10kHz
+        if len(internal_v) >= 3:
+            predicted_10k = A * math.log10(10000) + B
+            if abs(predicted_10k - internal_v[2]) < 5:
+                print(f"  Calibration verified: 100Hz, 1kHz, 10kHz gridlines match")
+            else:
+                print(f"  WARNING: 10kHz gridline off by {abs(predicted_10k - internal_v[2]):.0f}px")
+    else:
+        # Fallback: assume ~125px per decade based on standard 476px graphs
+        A = 125.0
+        B = left - A * math.log10(10)
+
+    print(f"  Calibration: A={A:.1f}, B={B:.1f}")
+    print(f"  Freq range: {pixel_to_freq(left, A, B):.0f}Hz - {pixel_to_freq(right, A, B):.0f}Hz")
+
+    # Build red pixel mask — simple RGB threshold on RGBA image
+    plot_h = bottom - top
+    plot_w = right - left
+    mask = np.zeros((plot_h, plot_w), dtype=bool)
+    for c in range(plot_w):
+        for r in range(plot_h):
+            red, g, b, a = px[c + left, r + top]
+            if red > 180 and g < 120 and b < 120:
+                mask[r, c] = True
+
+    total_red = int(np.sum(mask))
+    print(f"  Red pixels: {total_red}")
+
+    # Build per-column clusters and track (reuse existing tracker logic)
+    col_centers = {}
+    for c in range(plot_w):
+        ys = [r + top for r in range(plot_h) if mask[r, c]]
+        if ys:
+            clusters = _cluster_ys(ys, gap=5)
+            col_centers[c + left] = [sum(cl) / len(cl) for cl in clusters]
+
+    x_values = sorted(col_centers.keys())
+    if not x_values:
+        print("  WARNING: No red curve pixels found")
+        return {}
+
+    max_clusters = max(len(col_centers[x]) for x in x_values)
+    print(f"  Columns with data: {len(x_values)}, max simultaneous lines: {max_clusters}")
+
+    # Multi-object tracking
+    active = []
+    MATCH_DIST = 10  # tighter for smaller images
+    MAX_GAP = 8
+
+    for x in x_values:
+        centers = col_centers[x]
+        candidates = []
+        for ci, cy in enumerate(centers):
+            for pi, (last_y, _, gap) in enumerate(active):
+                if gap > MAX_GAP:
+                    continue
+                candidates.append((abs(cy - last_y), ci, pi))
+        candidates.sort()
+
+        matched_paths = set()
+        matched_centers = set()
+        for dist, ci, pi in candidates:
+            if ci in matched_centers or pi in matched_paths:
+                continue
+            if dist <= MATCH_DIST:
+                _, pts, _ = active[pi]
+                pts.append((x, centers[ci]))
+                active[pi] = (centers[ci], pts, 0)
+                matched_paths.add(pi)
+                matched_centers.add(ci)
+
+        for ci, cy in enumerate(centers):
+            if ci not in matched_centers:
+                active.append((cy, [(x, cy)], 0))
+
+        for pi in range(len(active)):
+            if pi not in matched_paths:
+                last_y, pts, gap = active[pi]
+                active[pi] = (last_y, pts, gap + 1)
+
+    # Filter paths
+    min_span = plot_w * 0.20
+    paths = []
+    for _, pts, _ in active:
+        if len(pts) < 10:
+            continue
+        span = pts[-1][0] - pts[0][0]
+        if span >= min_span:
+            paths.append(pts)
+
+    # Deduplicate
+    paths.sort(key=lambda p: -(p[-1][0] - p[0][0]))
+    unique = []
+    for path in paths:
+        is_dup = False
+        for existing in unique:
+            ex_dict = dict(existing)
+            diffs = []
+            for x, y in path[::max(1, len(path) // 10)]:
+                if x in ex_dict:
+                    diffs.append(abs(y - ex_dict[x]))
+            if len(diffs) >= 3 and sum(diffs) / len(diffs) < 3:
+                is_dup = True
+                break
+        if not is_dup:
+            unique.append(path)
+
+    print(f"  Tracked {len(unique)} path(s)")
+
+    # Convert to freq/dB
+    curves = []
+    for i, raw_path in enumerate(unique):
+        data = pixels_to_data(raw_path, A, B, top, bottom)
+        data = filter_continuity(data)
+        if data:
+            freqs = [d[0] for d in data]
+            dbs = [d[1] for d in data]
+            print(f"  Curve {i}: {len(data)} pts, {min(freqs):.0f}-{max(freqs):.0f}Hz, {min(dbs):.1f} to {max(dbs):.1f}dB")
+            curves.append(data)
+
+    return {
+        "single": {
+            "raw_paths": len(unique),
+            "curves": curves,
+        }
+    }
+
+
 # --- Download ---
+
+def download_single_graph(mic_id, save_path):
+    """Download a single-mic RecordingHacks graph PNG."""
+    url = f"https://recordinghacks.com/graphs2.php/{mic_id}"
+    print(f"Downloading {url}")
+    resp = requests.get(url, timeout=15)
+    resp.raise_for_status()
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    save_path.write_bytes(resp.content)
+    print(f"  Saved to {save_path} ({len(resp.content)} bytes)")
+
 
 def download_graph(id1, id2, save_path):
     """Download a RecordingHacks comparison graph PNG."""
@@ -806,19 +1036,14 @@ def digitize(image_path, extract="both"):
 
 def main():
     parser = argparse.ArgumentParser(description="Digitize RecordingHacks frequency response curves")
-    parser.add_argument("id1", nargs="?", default="0006", help="First mic ID (default: 0006 = SM57)")
-    parser.add_argument("id2", nargs="?", default="0253", help="Second mic ID (default: 0253 = SM58)")
-    parser.add_argument("--first", action="store_true", help="Extract first curve only")
-    parser.add_argument("--second", action="store_true", help="Extract second curve only")
+    parser.add_argument("id1", nargs="?", default="0006", help="First mic ID (or single mic ID with --single)")
+    parser.add_argument("id2", nargs="?", default="0253", help="Second mic ID (ignored with --single)")
+    parser.add_argument("--single", action="store_true", help="Single-mic graph mode (476x159, red curve)")
+    parser.add_argument("--first", action="store_true", help="Extract first curve only (comparison mode)")
+    parser.add_argument("--second", action="store_true", help="Extract second curve only (comparison mode)")
     parser.add_argument("--image", type=Path, help="Use local image instead of downloading")
     parser.add_argument("--output", type=Path, default=None, help="Output JSON path")
     args = parser.parse_args()
-
-    extract = "both"
-    if args.first:
-        extract = "first"
-    elif args.second:
-        extract = "second"
 
     # Paths
     repo_root = Path(__file__).resolve().parent.parent.parent
@@ -827,7 +1052,63 @@ def main():
     tmp_dir = Path("/tmp/poser")
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    # Download
+    if args.single:
+        # Single-mic graph mode
+        mic_id = args.id1
+        if args.image:
+            image_path = args.image
+        else:
+            image_path = tmp_dir / f"single_{mic_id}.png"
+            download_single_graph(mic_id, image_path)
+
+        results = digitize_single(image_path)
+
+        output = {
+            "source": f"https://recordinghacks.com/graphs2.php/{mic_id}",
+            "mic_ids": [mic_id],
+            "mic_names": [RH_MIC_NAMES.get(mic_id, mic_id)],
+            "mode": "single",
+            "curves": {},
+        }
+        if "single" in results:
+            curve_list = []
+            for i, data in enumerate(results["single"]["curves"]):
+                curve_list.append({
+                    "index": i,
+                    "points": len(data),
+                    "data": [{"hz": hz, "db": db} for hz, db in data],
+                })
+            output["curves"]["single"] = {
+                "num_curves": len(curve_list),
+                "curves": curve_list,
+            }
+
+        json_path = args.output or (data_dir / f"single-{mic_id}.json")
+        with open(json_path, "w") as f:
+            json.dump(output, f, indent=2)
+        print(f"\nWrote {json_path}")
+
+        for c in output.get("curves", {}).get("single", {}).get("curves", []):
+            pts = c["data"]
+            if pts:
+                freqs = [p["hz"] for p in pts]
+                dbs = [p["db"] for p in pts]
+                print(f"  Curve {c['index']}: {c['points']} pts, "
+                      f"{min(freqs):.0f}-{max(freqs):.0f}Hz, "
+                      f"{min(dbs):.1f} to {max(dbs):.1f} dB")
+
+        # Comparison plot
+        plot_path = tmp_dir / f"single-{mic_id}_comparison.png"
+        make_comparison_plot(image_path, output["curves"], plot_path, [mic_id])
+        return
+
+    # Comparison mode (original behavior)
+    extract = "both"
+    if args.first:
+        extract = "first"
+    elif args.second:
+        extract = "second"
+
     if args.image:
         image_path = args.image
     else:
@@ -841,6 +1122,8 @@ def main():
     output = {
         "source": f"https://recordinghacks.com/graphs2.php/{args.id1}-{args.id2}",
         "mic_ids": [args.id1, args.id2],
+        "mic_names": [RH_MIC_NAMES.get(args.id1, args.id1), RH_MIC_NAMES.get(args.id2, args.id2)],
+        "mode": "comparison",
         "curves": {},
     }
     for key in ("first", "second"):

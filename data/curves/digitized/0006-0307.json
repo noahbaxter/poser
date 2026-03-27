@@ -2712,5 +2712,9 @@
         }
       ]
     }
-  }
+  },
+  "mic_names": [
+    "Shure SM57",
+    "AKG C414 XL II"
+  ]
 }

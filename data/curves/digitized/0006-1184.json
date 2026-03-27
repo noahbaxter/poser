@@ -3312,5 +3312,9 @@
         }
       ]
     }
-  }
+  },
+  "mic_names": [
+    "Shure SM57",
+    "Sennheiser e906"
+  ]
 }

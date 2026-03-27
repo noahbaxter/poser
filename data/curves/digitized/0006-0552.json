@@ -3444,5 +3444,9 @@
         }
       ]
     }
-  }
+  },
+  "mic_names": [
+    "Shure SM57",
+    "Sennheiser MD421"
+  ]
 }

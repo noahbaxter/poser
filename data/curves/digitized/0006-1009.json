@@ -6908,5 +6908,9 @@
         }
       ]
     }
-  }
+  },
+  "mic_names": [
+    "Shure SM57",
+    "Beyerdynamic M88 TG"
+  ]
 }

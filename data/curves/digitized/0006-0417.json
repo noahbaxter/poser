@@ -3212,5 +3212,9 @@
         }
       ]
     }
-  }
+  },
+  "mic_names": [
+    "Shure SM57",
+    "Electro-Voice RE20"
+  ]
 }
