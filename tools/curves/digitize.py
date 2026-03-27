@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""Digitize microphone frequency response curves from RecordingHacks comparison PNGs.
+"""Digitize microphone frequency response curves from RecordingHacks single-mic PNGs.
 
-Downloads a comparison graph from recordinghacks.com/graphs2.php/{id1}-{id2}
-(1200x401 PNG), extracts the two colored curves, and outputs frequency/dB data
-as JSON plus a side-by-side comparison image.
+Downloads single-mic graphs from recordinghacks.com, extracts red curve pixels
+as masks for hand-editing, then digitizes the cleaned masks into frequency/dB data.
 
 Usage:
-    python3 digitize_curve.py                    # Default: SM57 vs SM58
-    python3 digitize_curve.py 0006 0253          # Explicit mic IDs
-    python3 digitize_curve.py 0006 0253 --first  # Extract first curve only
-    python3 digitize_curve.py 0006 0253 --second # Extract second curve only
+    python3 tools/curves/digitize.py prepare   # Download sources, export masks
+    python3 tools/curves/digitize.py build     # Digitize masks → JSON curves
 """
 
 import argparse
@@ -28,8 +25,6 @@ from PIL import Image
 
 DB_TOP = 20.0
 DB_BOTTOM = -20.0
-COLOR_THRESHOLD = 70
-BLEND_THRESHOLD = 160
 
 # RecordingHacks ID -> mic name
 RH_MIC_NAMES = {
@@ -51,10 +46,28 @@ RH_MIC_NAMES = {
     "1184": "Sennheiser e906",
 }
 
+# Canonical slug for each mic (used for filenames)
+MIC_SLUGS = {
+    "0006": "sm57",
+    "0219": "beta-52a",
+    "0253": "sm58",
+    "0255": "sm7b",
+    "0307": "c414",
+    "0323": "c451b",
+    "0335": "d112",
+    "0417": "re20",
+    "0429": "r84",
+    "0552": "md421",
+    "0567": "d6",
+    "0701": "coles-4038",
+    "0860": "u87",
+    "1009": "m88-tg",
+    "1091": "km184",
+    "1184": "e906",
+}
 
-def color_dist(c1, c2):
-    """Euclidean distance between two RGB tuples."""
-    return math.sqrt(sum((a - b) ** 2 for a, b in zip(c1, c2)))
+# Reverse lookup: slug -> RH ID
+SLUG_TO_ID = {v: k for k, v in MIC_SLUGS.items()}
 
 
 # --- Plot geometry ---
@@ -184,466 +197,6 @@ def pixel_to_freq(x, A, B):
 def pixel_to_db(y, top, bottom):
     return DB_TOP - (y - top) * (DB_TOP - DB_BOTTOM) / (bottom - top)
 
-
-# --- Color detection ---
-
-def detect_curve_colors(img_rgb, left, top):
-    """Detect the two curve colors from legend swatches in top-left."""
-    from collections import Counter
-    pixels = img_rgb.load()
-
-    swatch_colors = []
-    for y in range(top + 10, top + 80):
-        for x in range(left + 5, left + 30):
-            r, g, b = pixels[x, y][:3]
-            if r == g == b:
-                continue
-            if (r, g, b) == (246, 246, 246):
-                continue
-            swatch_colors.append((r, g, b))
-
-    if not swatch_colors:
-        print("  WARNING: Could not detect legend colors, using defaults")
-        return (246, 148, 16), (148, 16, 148)
-
-    counts = Counter(swatch_colors)
-    result_colors = []
-    for color, _ in counts.most_common(10):
-        if all(color_dist(color, c) >= 50 for c in result_colors):
-            result_colors.append(color)
-        if len(result_colors) == 2:
-            break
-
-    if len(result_colors) == 2:
-        # Order by vertical position in legend (top = first mic)
-        def first_y(color):
-            for y in range(top + 10, top + 80):
-                for x in range(left + 5, left + 30):
-                    if color_dist(pixels[x, y][:3], color) < 30:
-                        return y
-            return 999
-        result_colors.sort(key=first_y)
-        return tuple(result_colors[0]), tuple(result_colors[1])
-
-    print("  WARNING: Could not find two distinct legend colors, using defaults")
-    return (246, 148, 16), (148, 16, 148)
-
-
-# --- Palette classification ---
-
-def classify_palette(img, target_color):
-    """For paletted images, classify each palette entry as curve/blend/other.
-
-    Returns dict of palette_index -> weight, or None if not paletted.
-    """
-    if img.mode != "P":
-        return None
-
-    pal = img.getpalette()
-    n_colors = len(pal) // 3
-    weights = {}
-    tr, tg, tb = target_color
-
-    for i in range(n_colors):
-        r, g, b = pal[i * 3], pal[i * 3 + 1], pal[i * 3 + 2]
-
-        # Skip pure grays (background, gridlines, borders)
-        if r == g == b:
-            continue
-
-        dist = color_dist((r, g, b), target_color)
-
-        if dist < COLOR_THRESHOLD:
-            # Direct curve match
-            weights[i] = 1.0 - (dist / COLOR_THRESHOLD)
-        elif dist < BLEND_THRESHOLD:
-            # Possible watermark blend — check if it retains curve color character
-            is_blend = False
-            if tr > tb:  # Orange-ish target
-                is_blend = r > g and r > b
-            else:  # Purple-ish target
-                is_blend = r > g and b > g
-            if is_blend:
-                weights[i] = 0.3 * (1.0 - (dist / BLEND_THRESHOLD))
-
-    return weights
-
-
-# --- Curve extraction (connected component approach) ---
-
-def _build_color_mask(img_orig, img_rgb, target_color, left, right, top, bottom):
-    """Build a binary mask of all pixels matching the target color.
-
-    Returns a 2D numpy array (height x width) where True = matches target color.
-    Uses palette classification for paletted images.
-    """
-    plot_w = right - left
-    plot_h = bottom - top
-    mask = np.zeros((plot_h, plot_w), dtype=bool)
-
-    pal_weights = classify_palette(img_orig, target_color)
-
-    if pal_weights is not None:
-        # Palette mode: use classified indices
-        pure_indices = set()
-        for i, w in pal_weights.items():
-            pal = img_orig.getpalette()
-            r, g, b = pal[i*3], pal[i*3+1], pal[i*3+2]
-            dist = color_dist((r, g, b), target_color)
-            if dist < COLOR_THRESHOLD:
-                pure_indices.add(i)
-
-        px = img_orig.load()
-        for x in range(left + 1, right - 1):
-            for y in range(top + 1, bottom - 1):
-                if px[x, y] in pure_indices:
-                    mask[y - top, x - left] = True
-
-        print(f"  Pure palette indices: {sorted(pure_indices)}")
-    else:
-        # RGB mode: distance-based matching
-        px = img_rgb.load()
-        for x in range(left + 1, right - 1):
-            for y in range(top + 1, bottom - 1):
-                if color_dist(px[x, y][:3], target_color) < COLOR_THRESHOLD:
-                    mask[y - top, x - left] = True
-
-    total = int(np.sum(mask))
-    print(f"  Color mask: {total} pixels")
-    return mask
-
-
-def _find_connected_components(mask):
-    """Find connected components in a binary mask using flood fill.
-
-    Uses 8-connectivity (diagonal pixels count as connected).
-    Returns list of components, each a set of (row, col) tuples.
-    """
-    visited = np.zeros_like(mask, dtype=bool)
-    components = []
-    rows, cols = mask.shape
-
-    for r in range(rows):
-        for c in range(cols):
-            if mask[r, c] and not visited[r, c]:
-                # BFS flood fill
-                component = set()
-                queue = [(r, c)]
-                visited[r, c] = True
-                while queue:
-                    cr, cc = queue.pop(0)
-                    component.add((cr, cc))
-                    # 8-connectivity neighbors
-                    for dr in [-1, 0, 1]:
-                        for dc in [-1, 0, 1]:
-                            if dr == 0 and dc == 0:
-                                continue
-                            nr, nc = cr + dr, cc + dc
-                            if 0 <= nr < rows and 0 <= nc < cols:
-                                if mask[nr, nc] and not visited[nr, nc]:
-                                    visited[nr, nc] = True
-                                    queue.append((nr, nc))
-                components.append(component)
-
-    return components
-
-
-def _component_x_span(component, left):
-    """Get the x-pixel span (min_x, max_x) of a component in plot coordinates."""
-    cols = [c for _, c in component]
-    return min(cols) + left, max(cols) + left
-
-
-def _cluster_ys(ys, gap=8):
-    """Cluster y values into groups separated by gaps.
-
-    Returns list of clusters, each a list of y values.
-    A gap of 8px (~2.5dB) separates distinct lines.
-    """
-    if not ys:
-        return []
-    ys_sorted = sorted(ys)
-    clusters = [[ys_sorted[0]]]
-    for y in ys_sorted[1:]:
-        if y - clusters[-1][-1] <= gap:
-            clusters[-1].append(y)
-        else:
-            clusters.append([y])
-    return clusters
-
-
-def _trace_component(component, left, top):
-    """Trace a connected component into one or more curves using multi-object tracking.
-
-    Scans every column for y-clusters and tracks each line independently.
-    New lines start when an unmatched cluster appears. Lines survive gaps
-    (dashed lines, gridline crossings). Multiple solid or dashed lines
-    in the same component each get their own path.
-
-    Returns list of curves, each a list of (x_pixel, y_avg) pairs.
-    Sorted by x-span (widest first).
-    """
-    # Group pixels by column
-    col_ys = {}
-    for r, c in component:
-        x = c + left
-        y = r + top
-        col_ys.setdefault(x, []).append(y)
-
-    x_values = sorted(col_ys.keys())
-    if not x_values:
-        return []
-
-    # Build cluster centers per column
-    col_centers = {}
-    for x in x_values:
-        clusters = _cluster_ys(col_ys[x])
-        col_centers[x] = [sum(c) / len(c) for c in clusters]
-
-    # Multi-object tracking across columns
-    # Each active path: [last_y, points_list, gap_count]
-    active = []
-    MAX_GAP = 12     # survive this many empty columns (handles dashes, gridlines)
-    MATCH_DIST = 20   # max y-distance to match a cluster to a path
-
-    for x in x_values:
-        centers = col_centers[x]
-
-        # Build candidate matches: (distance, center_idx, path_idx)
-        candidates = []
-        for ci, cy in enumerate(centers):
-            for pi, (last_y, _, _) in enumerate(active):
-                candidates.append((abs(cy - last_y), ci, pi))
-        candidates.sort()
-
-        matched_paths = set()
-        matched_centers = set()
-
-        # Greedy closest-first matching
-        for dist, ci, pi in candidates:
-            if ci in matched_centers or pi in matched_paths:
-                continue
-            if dist <= MATCH_DIST:
-                last_y, pts, _ = active[pi]
-                pts.append((x, centers[ci]))
-                active[pi] = (centers[ci], pts, 0)
-                matched_paths.add(pi)
-                matched_centers.add(ci)
-
-        # Unmatched centers → new paths (a line just appeared)
-        for ci, cy in enumerate(centers):
-            if ci not in matched_centers:
-                active.append((cy, [(x, cy)], 0))
-
-        # Unmatched paths → increment gap counter
-        for pi in range(len(active)):
-            if pi not in matched_paths:
-                last_y, pts, gap = active[pi]
-                active[pi] = (last_y, pts, gap + 1)
-
-        # Remove dead paths (gap too large) — move to finished
-        # (keep them in active but skip matching once dead)
-
-    # Collect all paths with enough points
-    min_points = max(20, len(x_values) * 0.05)  # at least 5% of columns
-    paths = [pts for _, pts, _ in active if len(pts) >= min_points]
-
-    # Deduplicate near-identical paths
-    paths.sort(key=lambda p: -(p[-1][0] - p[0][0]) if len(p) > 1 else 0)
-    unique = []
-    for path in paths:
-        is_dup = False
-        for existing in unique:
-            # Sample both at ~10 evenly spaced x positions
-            ex_dict = dict(existing)
-            diffs = []
-            for x, y in path[::max(1, len(path) // 10)]:
-                if x in ex_dict:
-                    diffs.append(abs(y - ex_dict[x]))
-            if len(diffs) >= 3 and sum(diffs) / len(diffs) < 4:
-                is_dup = True
-                break
-        if not is_dup:
-            unique.append(path)
-
-    return unique if unique else [[(x, sum(col_ys[x]) / len(col_ys[x])) for x in x_values]]
-
-
-def extract_curve(img_orig, img_rgb, target_color, left, right, top, bottom):
-    """Extract curve pixels and trace all distinct lines using multi-object tracking.
-
-    Skips connected component analysis entirely — instead builds per-column
-    y-clusters directly from the color mask and tracks each line independently.
-    This correctly separates solid lines, dashed lines, and multi-line charts
-    even when they touch or cross.
-
-    Returns list of paths (each a list of (x_pixel, y_avg) pairs), sorted
-    by span (widest first).
-    """
-    # Build color mask
-    mask = _build_color_mask(img_orig, img_rgb, target_color, left, right, top, bottom)
-
-    # Legend zone: skip colored pixels in the top-left area (swatch + mic name text)
-    legend_max_x = left + 300
-    legend_max_y = top + 80
-
-    # Build per-column y-clusters directly from the mask (gap=5 for fine separation)
-    col_centers = {}
-    plot_h, plot_w = mask.shape
-    for c in range(plot_w):
-        x = c + left
-        ys = []
-        for r in range(plot_h):
-            y = r + top
-            if mask[r, c]:
-                # Skip legend zone
-                if x < legend_max_x and y < legend_max_y:
-                    continue
-                ys.append(y)
-        if ys:
-            clusters = _cluster_ys(ys, gap=5)
-            col_centers[x] = [sum(cl) / len(cl) for cl in clusters]
-
-    x_values = sorted(col_centers.keys())
-    if not x_values:
-        print("  WARNING: No curve pixels found")
-        return []
-
-    # Count max simultaneous lines
-    max_clusters = max(len(col_centers[x]) for x in x_values)
-    print(f"  Columns with data: {len(x_values)}, max simultaneous lines: {max_clusters}")
-
-    # Multi-object tracking across columns
-    active = []  # list of [last_y, points_list, gap_count]
-    MATCH_DIST = 15
-    MAX_GAP = 15  # survive gaps (dashes, gridline crossings)
-
-    for x in x_values:
-        centers = col_centers[x]
-
-        # Build candidate matches: (distance, center_idx, path_idx)
-        candidates = []
-        for ci, cy in enumerate(centers):
-            for pi, (last_y, _, gap) in enumerate(active):
-                if gap > MAX_GAP:
-                    continue  # path is dead
-                candidates.append((abs(cy - last_y), ci, pi))
-        candidates.sort()
-
-        matched_paths = set()
-        matched_centers = set()
-
-        for dist, ci, pi in candidates:
-            if ci in matched_centers or pi in matched_paths:
-                continue
-            if dist <= MATCH_DIST:
-                _, pts, _ = active[pi]
-                pts.append((x, centers[ci]))
-                active[pi] = (centers[ci], pts, 0)
-                matched_paths.add(pi)
-                matched_centers.add(ci)
-
-        # Unmatched centers → new paths
-        for ci, cy in enumerate(centers):
-            if ci not in matched_centers:
-                active.append((cy, [(x, cy)], 0))
-
-        # Increment gap for unmatched active paths
-        for pi in range(len(active)):
-            if pi not in matched_paths:
-                last_y, pts, gap = active[pi]
-                active[pi] = (last_y, pts, gap + 1)
-
-    # Collect paths, filter short ones (legend text, labels, etc.)
-    plot_width = right - left
-    min_span = plot_width * 0.20  # must span at least 20% of plot width
-    paths = []
-    for _, pts, _ in active:
-        if len(pts) < 20:
-            continue
-        span = pts[-1][0] - pts[0][0]
-        if span >= min_span:
-            paths.append(pts)
-
-    # Deduplicate near-identical paths
-    paths.sort(key=lambda p: -(p[-1][0] - p[0][0]))
-    unique = []
-    for path in paths:
-        is_dup = False
-        for existing in unique:
-            ex_dict = dict(existing)
-            diffs = []
-            for x, y in path[::max(1, len(path) // 10)]:
-                if x in ex_dict:
-                    diffs.append(abs(y - ex_dict[x]))
-            if len(diffs) >= 3 and sum(diffs) / len(diffs) < 4:
-                is_dup = True
-                break
-        if not is_dup:
-            unique.append(path)
-
-    print(f"  Tracked {len(unique)} distinct path(s)")
-    for i, path in enumerate(unique):
-        span = path[-1][0] - path[0][0]
-        print(f"    Path {i}: {len(path)} pts, span={span}px")
-
-    # Extend each path with blend colors through watermark region
-    pal_weights = classify_palette(img_orig, target_color)
-    blend_indices = {}
-    if pal_weights is not None and img_orig.mode == "P":
-        pal = img_orig.getpalette()
-        for i, w in pal_weights.items():
-            r, g, b = pal[i*3], pal[i*3+1], pal[i*3+2]
-            if color_dist((r, g, b), target_color) >= COLOR_THRESHOLD:
-                blend_indices[i] = w
-
-    extended = []
-    for path in unique:
-        if blend_indices and path:
-            path = _extend_with_blends(path, img_orig, blend_indices, top, bottom, right)
-        extended.append(path)
-
-    for i, path in enumerate(extended):
-        print(f"  Path {i} final: {len(path)} points")
-
-    return extended
-
-
-def _extend_with_blends(points, img_orig, blend_indices, top, bottom, right):
-    """Extend a single path using blend-colored pixels (watermark fill)."""
-    px = img_orig.load()
-    point_dict = {x: y for x, y in points}
-    last_y = point_dict[max(point_dict.keys())]
-    blend_count = 0
-    consecutive_empty = 0
-
-    for x in range(min(point_dict.keys()), right):
-        if x in point_dict:
-            last_y = point_dict[x]
-            consecutive_empty = 0
-            continue
-        if consecutive_empty > 15:
-            break
-
-        matching_ys = []
-        for y in range(top + 1, bottom - 1):
-            if px[x, y] in blend_indices and abs(y - last_y) <= 25:
-                matching_ys.append(y)
-
-        if matching_ys:
-            avg_y = sum(matching_ys) / len(matching_ys)
-            point_dict[x] = avg_y
-            last_y = avg_y
-            consecutive_empty = 0
-            blend_count += 1
-        else:
-            consecutive_empty += 1
-
-    if blend_count:
-        print(f"    +{blend_count} blend columns")
-    return sorted(point_dict.items())
-
-
 # --- Data conversion ---
 
 def pixels_to_data(points, A, B, top, bottom):
@@ -703,16 +256,31 @@ def make_comparison_plot(source_img_path, curves, out_path, mic_ids):
     """Generate side-by-side: original image (top) + all digitized curves (bottom)."""
     src = Image.open(source_img_path)
 
-    fig, (ax_orig, ax_dig) = plt.subplots(2, 1, figsize=(12, 8),
-                                           gridspec_kw={"height_ratios": [1, 1.2]})
+    fig, (ax_orig, ax_dig) = plt.subplots(2, 1, figsize=(12, 6),
+                                           gridspec_kw={"height_ratios": [1, 1]})
 
-    # Top: original image
-    ax_orig.imshow(np.array(src.convert("RGB")))
+    # Top: original image cropped to plot area only
+    src_rgb = np.array(src.convert("RGB"))
+    # Detect plot bounds from the image
+    gray = np.mean(src_rgb, axis=2)
+    h_img, w_img = gray.shape
+    h_lines = [y for y in range(h_img) if np.sum(gray[y, :] < 40) > w_img * 0.6]
+    v_lines = [x for x in range(w_img) if np.sum(gray[:, x] < 40) > h_img * 0.6]
+    if len(h_lines) >= 2 and len(v_lines) >= 2:
+        top_c = min(h_lines)
+        bot_c = max(h_lines)
+        left_c = min(v_lines)
+        right_c = max(v_lines)
+        cropped = src_rgb[top_c:bot_c, left_c:right_c]
+    else:
+        cropped = src_rgb
+    ax_orig.imshow(cropped, aspect="auto")
     ax_orig.set_title("Original (RecordingHacks)", fontsize=11)
-    ax_orig.axis("off")
+    ax_orig.set_xticks([])
+    ax_orig.set_yticks([])
 
     # Bottom: all digitized curves
-    base_colors = ["#f69410", "#9410a0", "#cc0000"]  # orange, purple, red
+    base_colors = ["#ff0000", "#ff0000", "#ff0000"]  # pure red to match source
     line_styles = ["-", "--", ":", "-."]
 
     # Build key/label pairs based on what's in the data
@@ -742,15 +310,16 @@ def make_comparison_plot(source_img_path, curves, out_path, mic_ids):
             ax_dig.semilogx(freqs, dbs, color=base_colors[i % len(base_colors)],
                             linewidth=lw, linestyle=style, alpha=alpha, label=label)
 
-    ax_dig.set_xlim(20, 20000)
+    ax_dig.set_xlim(10, 40000)
     ax_dig.set_ylim(-20, 20)
+    ax_dig.axhline(0, color="gray", linewidth=0.5, linestyle="--")
     ax_dig.set_xlabel("Frequency (Hz)")
     ax_dig.set_ylabel("dB")
     ax_dig.set_title("Digitized", fontsize=11)
     ax_dig.legend(loc="upper left", fontsize=8)
     ax_dig.grid(True, which="both", alpha=0.3)
-    ax_dig.set_xticks([20, 100, 1000, 10000, 20000])
-    ax_dig.set_xticklabels(["20Hz", "100Hz", "1kHz", "10kHz", "20kHz"])
+    ax_dig.set_xticks([10, 20, 100, 200, 1000, 2000, 10000, 20000])
+    ax_dig.set_xticklabels(["10", "20", "100", "200", "1k", "2k", "10k", "20k"])
 
     plt.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -926,6 +495,43 @@ def digitize_single(image_path):
 
     print(f"  Tracked {len(unique)} path(s)")
 
+    # Complete fragment curves using the main (widest) curve.
+    # Many mic charts show multiple response variants (proximity effect, bass
+    # switches) that share the same high-frequency response but diverge in the
+    # bass. The tracker follows each line through the split region, but when
+    # lines merge back, secondary paths die. We splice the main curve's data
+    # onto fragments to produce complete full-range curves.
+    if len(unique) > 1:
+        main = unique[0]  # widest span (sorted by -span earlier)
+        main_dict = dict(main)
+        main_x_min = main[0][0]
+        main_x_max = main[-1][0]
+        completed = [main]
+        for frag in unique[1:]:
+            frag_x_min = frag[0][0]
+            frag_x_max = frag[-1][0]
+            frag_span = frag_x_max - frag_x_min
+            main_span = main_x_max - main_x_min
+            if frag_span >= main_span * 0.8:
+                # Already near-full range, keep as-is
+                completed.append(frag)
+                continue
+            # Splice: use fragment data where it exists, main curve elsewhere
+            frag_dict = dict(frag)
+            merged = []
+            for x, y in main:
+                if frag_x_min <= x <= frag_x_max:
+                    # Use fragment's value in its range
+                    if x in frag_dict:
+                        merged.append((x, frag_dict[x]))
+                else:
+                    # Outside fragment range, use main curve
+                    merged.append((x, y))
+            # Smooth the splice points (average over a few pixels at boundaries)
+            completed.append(merged)
+            print(f"  Completed fragment ({frag_span:.0f}px) → full range using main curve")
+        unique = completed
+
     # Convert to freq/dB
     curves = []
     for i, raw_path in enumerate(unique):
@@ -958,208 +564,447 @@ def download_single_graph(mic_id, save_path):
     print(f"  Saved to {save_path} ({len(resp.content)} bytes)")
 
 
-def download_graph(id1, id2, save_path):
-    """Download a RecordingHacks comparison graph PNG."""
-    url = f"https://recordinghacks.com/graphs2.php/{id1}-{id2}"
-    print(f"Downloading {url}")
-    resp = requests.get(url, timeout=15)
-    resp.raise_for_status()
 
-    if not resp.content[:4] == b"\x89PNG":
-        print(f"  ERROR: Response is not a PNG")
+
+# --- Mask export ---
+
+def _export_mask(image_path, mic_id, out_dir, mask_path=None):
+    """Export the red curve pixels as a clean PNG for manual editing.
+
+    Outputs a white image with red pixels only (no grid, no background, no text).
+    The image is the same dimensions as the plot area. Calibration JSON is saved
+    alongside for use by _digitize_mask.
+    """
+    slug = MIC_SLUGS.get(mic_id, mic_id)
+    img = Image.open(image_path).convert("RGBA")
+    px = img.load()
+    w, h = img.size
+
+    # Detect plot bounds (same logic as digitize_single)
+    gray = img.convert("L")
+    gpx = gray.load()
+    h_lines, v_lines = [], []
+    for y in range(h):
+        dark = sum(1 for x in range(w) if gpx[x, y] < 40)
+        if dark > w * 0.6:
+            h_lines.append(y)
+    for x in range(w):
+        dark = sum(1 for y in range(h) if gpx[x, y] < 40)
+        if dark > h * 0.6:
+            v_lines.append(x)
+
+    def cluster(vals):
+        if not vals:
+            return []
+        groups = [[vals[0]]]
+        for v in vals[1:]:
+            if v - groups[-1][-1] <= 2:
+                groups[-1].append(v)
+            else:
+                groups.append([v])
+        return [int(sum(g) / len(g)) for g in groups]
+
+    h_bounds = cluster(h_lines)
+    v_bounds = cluster(v_lines)
+    top, bottom = h_bounds[0], h_bounds[-1]
+    left, right = v_bounds[0], v_bounds[-1]
+    plot_h = bottom - top
+    plot_w = right - left
+
+    # Build red pixel mask
+    mask = np.zeros((plot_h, plot_w), dtype=bool)
+    for c in range(plot_w):
+        for r in range(plot_h):
+            red, g, b, a = px[c + left, r + top]
+            if red > 180 and g < 120 and b < 120:
+                mask[r, c] = True
+
+    # Create output image: white background, red curve pixels
+    out = Image.new("RGB", (plot_w, plot_h), (255, 255, 255))
+    out_px = out.load()
+    for r in range(plot_h):
+        for c in range(plot_w):
+            if mask[r, c]:
+                out_px[c, r] = (255, 0, 0)
+
+    if mask_path is None:
+        mask_path = out_dir / f"{slug}.png"
+    out.save(mask_path)
+    red_count = int(np.sum(mask))
+
+    # Calibrate axes (same as digitize_single)
+    internal_v = [x for x in v_bounds if left < x < right]
+    if len(internal_v) >= 2:
+        A = internal_v[1] - internal_v[0]
+        B = internal_v[0] - A * math.log10(100)
+    else:
+        A = 125.0
+        B = left - A * math.log10(10)
+
+    # Save calibration alongside mask (one per mic, shared by all variants)
+    cal_path = out_dir / f"{slug}.json"
+    cal = {"A": A, "B": B, "left": left, "right": right, "top": top, "bottom": bottom}
+    with open(cal_path, "w") as f:
+        json.dump(cal, f, indent=2)
+
+    print(f"  Mask: {mask_path.name} ({plot_w}x{plot_h}, {red_count} red pixels)")
+
+
+def _digitize_mask(mask_path, mic_id, cal_dir):
+    """Digitize a cleaned mask PNG using saved calibration.
+
+    The mask is a white image with red pixels only — same dimensions as the
+    original plot area. Calibration (A, B, bounds) comes from the JSON saved
+    alongside the original mask export.
+    """
+    slug = MIC_SLUGS.get(mic_id, mic_id)
+    cal_path = cal_dir / f"{slug}.json"
+    if not cal_path.exists():
+        print(f"ERROR: Calibration file not found: {cal_path}")
+        print(f"  Run 'prepare' first to generate it.")
         sys.exit(1)
 
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_path.write_bytes(resp.content)
-    print(f"  Saved to {save_path} ({len(resp.content)} bytes)")
+    with open(cal_path) as f:
+        cal = json.load(f)
+    A, B = cal["A"], cal["B"]
+    left, right = cal["left"], cal["right"]
+    top, bottom = cal["top"], cal["bottom"]
+
+    img = Image.open(mask_path).convert("RGB")
+    px = img.load()
+    w, h = img.size
+    print(f"\nDigitizing mask: {mask_path} ({w}x{h})")
+
+    # The mask image IS the plot area — coordinates are relative to (0,0)
+    # but calibration expects absolute pixel coords, so offset by left/top
+    mask = np.zeros((h, w), dtype=bool)
+    for r in range(h):
+        for c in range(w):
+            red, g, b = px[c, r]
+            if red > 180 and g < 120 and b < 120:
+                mask[r, c] = True
+
+    total_red = int(np.sum(mask))
+    print(f"  Red pixels: {total_red}")
+
+    # Build per-column clusters (x coords offset to match original calibration)
+    col_centers = {}
+    for c in range(w):
+        ys = [r + top for r in range(h) if mask[r, c]]
+        if ys:
+            clusters = _cluster_ys(ys, gap=5)
+            col_centers[c + left] = [sum(cl) / len(cl) for cl in clusters]
+
+    x_values = sorted(col_centers.keys())
+    if not x_values:
+        print("  WARNING: No red pixels found in mask")
+        return {}
+
+    # Multi-object tracking (same params as single mode)
+    active = []
+    MATCH_DIST = 10
+    MAX_GAP = 8
+
+    for x in x_values:
+        centers = col_centers[x]
+        candidates = []
+        for ci, cy in enumerate(centers):
+            for pi, (last_y, _, gap) in enumerate(active):
+                if gap > MAX_GAP:
+                    continue
+                candidates.append((abs(cy - last_y), ci, pi))
+        candidates.sort()
+
+        matched_paths = set()
+        matched_centers = set()
+        for dist, ci, pi in candidates:
+            if ci in matched_centers or pi in matched_paths:
+                continue
+            if dist <= MATCH_DIST:
+                _, pts, _ = active[pi]
+                pts.append((x, centers[ci]))
+                active[pi] = (centers[ci], pts, 0)
+                matched_paths.add(pi)
+                matched_centers.add(ci)
+
+        for ci, cy in enumerate(centers):
+            if ci not in matched_centers:
+                active.append((cy, [(x, cy)], 0))
+
+        for pi in range(len(active)):
+            if pi not in matched_paths:
+                last_y, pts, gap = active[pi]
+                active[pi] = (last_y, pts, gap + 1)
+
+    # Filter paths
+    plot_w = right - left
+    min_span = plot_w * 0.20
+    paths = []
+    for _, pts, _ in active:
+        if len(pts) < 10:
+            continue
+        span = pts[-1][0] - pts[0][0]
+        if span >= min_span:
+            paths.append(pts)
+
+    # Deduplicate
+    paths.sort(key=lambda p: -(p[-1][0] - p[0][0]))
+    unique = []
+    for path in paths:
+        is_dup = False
+        for existing in unique:
+            ex_dict = dict(existing)
+            diffs = []
+            for x, y in path[::max(1, len(path) // 10)]:
+                if x in ex_dict:
+                    diffs.append(abs(y - ex_dict[x]))
+            if len(diffs) >= 3 and sum(diffs) / len(diffs) < 3:
+                is_dup = True
+                break
+        if not is_dup:
+            unique.append(path)
+
+    print(f"  Tracked {len(unique)} path(s)")
+
+    # Convert to freq/dB
+    curves = []
+    for i, raw_path in enumerate(unique):
+        data = pixels_to_data(raw_path, A, B, top, bottom)
+        data = filter_continuity(data)
+        if data:
+            freqs = [d[0] for d in data]
+            dbs = [d[1] for d in data]
+            print(f"  Curve {i}: {len(data)} pts, {min(freqs):.0f}-{max(freqs):.0f}Hz, "
+                  f"{min(dbs):.1f} to {max(dbs):.1f}dB")
+            curves.append(data)
+
+    return {
+        "single": {
+            "raw_paths": len(unique),
+            "curves": curves,
+        }
+    }
 
 
 # --- Main pipeline ---
 
-def digitize(image_path, extract="both"):
-    """Main digitization pipeline. Returns (results_dict, calibration_info)."""
-    print(f"\nAnalyzing {image_path}")
 
-    # Keep original (paletted) AND RGB versions
-    img_orig = Image.open(image_path)
-    img_rgb = img_orig.convert("RGB")
-    w, h = img_orig.size
-    print(f"  Image: {w}x{h}, mode={img_orig.mode}")
-
-    if img_orig.mode == "P":
-        pal = img_orig.getpalette()
-        n = len(pal) // 3
-        print(f"  Palette: {n} colors")
-
-    # Detect geometry
-    left, right, top, bottom = detect_plot_bounds(img_rgb)
-    print(f"  Plot bounds: x=[{left}, {right}], y=[{top}, {bottom}]")
-
-    A, B = calibrate_x_axis(img_orig, left, right, top, bottom)
-    print(f"  Calibration: A={A:.1f}, B={B:.1f}")
-    print(f"  Freq range: {pixel_to_freq(left, A, B):.0f}Hz - {pixel_to_freq(right, A, B):.0f}Hz")
-
-    # Detect colors
-    color1, color2 = detect_curve_colors(img_rgb, left, top)
-    print(f"  Curve 1 color: RGB{color1}")
-    print(f"  Curve 2 color: RGB{color2}")
-
-    results = {}
-    curve_configs = []
-    if extract in ("both", "first"):
-        curve_configs.append(("first", color1))
-    if extract in ("both", "second"):
-        curve_configs.append(("second", color2))
-
-    for key, color in curve_configs:
-        print(f"\nExtracting {key} curve (target RGB{color})...")
-        all_paths = extract_curve(img_orig, img_rgb, color, left, right, top, bottom)
-
-        # Convert each path to frequency/dB data
-        curves = []
-        for i, raw_path in enumerate(all_paths):
-            data = pixels_to_data(raw_path, A, B, top, bottom)
-            data = filter_continuity(data)
-            if data:
-                freqs = [d[0] for d in data]
-                dbs = [d[1] for d in data]
-                print(f"  Curve {i}: {len(data)} pts, {min(freqs):.0f}-{max(freqs):.0f}Hz, {min(dbs):.1f} to {max(dbs):.1f}dB")
-                curves.append(data)
-
-        results[key] = {
-            "raw_paths": len(all_paths),
-            "curves": curves,
-        }
-
-    return results
+def _results_to_curve_list(results, key="single"):
+    """Convert extraction results to JSON curve list."""
+    if key not in results:
+        return []
+    curve_list = []
+    for i, data in enumerate(results[key]["curves"]):
+        curve_list.append({
+            "index": i,
+            "points": len(data),
+            "data": [{"hz": hz, "db": db} for hz, db in data],
+        })
+    return curve_list
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Digitize RecordingHacks frequency response curves")
-    parser.add_argument("id1", nargs="?", default="0006", help="First mic ID (or single mic ID with --single)")
-    parser.add_argument("id2", nargs="?", default="0253", help="Second mic ID (ignored with --single)")
-    parser.add_argument("--single", action="store_true", help="Single-mic graph mode (476x159, red curve)")
-    parser.add_argument("--first", action="store_true", help="Extract first curve only (comparison mode)")
-    parser.add_argument("--second", action="store_true", help="Extract second curve only (comparison mode)")
-    parser.add_argument("--image", type=Path, help="Use local image instead of downloading")
-    parser.add_argument("--output", type=Path, default=None, help="Output JSON path")
-    args = parser.parse_args()
+def cmd_prepare(args):
+    """Download source images, export masks, report status.
 
-    # Paths
-    repo_root = Path(__file__).resolve().parent.parent.parent
-    data_dir = repo_root / "data" / "curves" / "digitized"
-    data_dir.mkdir(parents=True, exist_ok=True)
+    For each mic in the registry:
+      1. Download source PNG if not cached in data/curves/sources/
+      2. Export red pixel mask to data/curves/masks/ (if not already there)
+      3. Report status: hand-edited variants exist, or base mask only
+    """
+    repo = Path(__file__).resolve().parent.parent.parent
+    source_dir = repo / "data" / "curves" / "sources"
+    mask_dir = repo / "data" / "curves" / "masks"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    mask_dir.mkdir(parents=True, exist_ok=True)
+
+    summary = []
+
+    for mic_id, slug in sorted(MIC_SLUGS.items(), key=lambda x: x[1]):
+        name = RH_MIC_NAMES[mic_id]
+        source_path = source_dir / f"{slug}.png"
+
+        # Download if not cached
+        if not source_path.exists():
+            print(f"\n--- {name} ({slug}) ---")
+            download_single_graph(mic_id, source_path)
+        else:
+            print(f"\n--- {name} ({slug}) --- [cached]")
+
+        # Check if hand-edited masks already exist
+        edited_masks = sorted(mask_dir.glob(f"{slug}_*.png"))
+        if edited_masks:
+            names = [p.name for p in edited_masks]
+            print(f"  Hand-edited masks: {len(names)} ({', '.join(names)})")
+            summary.append((slug, name, "edited", names))
+        else:
+            # Export base mask if missing
+            mask_path = mask_dir / f"{slug}.png"
+            if not mask_path.exists():
+                _export_mask(source_path, mic_id, mask_dir, mask_path)
+            else:
+                print(f"  Base mask: {mask_path.name} [exists]")
+            summary.append((slug, name, "base_only", []))
+
+    # Print summary
+    print("\n" + "=" * 70)
+    print("SUMMARY")
+    print("=" * 70)
+    base_only = []
+    for slug, name, status, masks in summary:
+        if status == "edited":
+            print(f"  {name:<25} {slug:<15} ✓ {len(masks)} variant(s)")
+        else:
+            print(f"  {name:<25} {slug:<15}   base mask only")
+            base_only.append(slug)
+
+    if base_only:
+        print(f"\n{len(base_only)} mic(s) have only a base mask (no hand-edited variants):")
+        print(f"  {', '.join(base_only)}")
+        print(f"\nIf any of these have multiple response curves (proximity, switches, etc.):")
+        print(f"  1. Open the mask in data/curves/masks/{{slug}}.png")
+        print(f"  2. Make copies — erase unwanted lines in each")
+        print(f"  3. Save as {{slug}}_1.png, {{slug}}_2.png, etc.")
+        print(f"\nThen run: python3 tools/curves/digitize.py build")
+
+
+def cmd_build(args):
+    """Digitize all masks and write JSONs.
+
+    For each mic:
+      - If hand-edited masks exist ({slug}_1.png, etc.), digitize each as a
+        separate curve variant
+      - If only the base mask exists, digitize it directly from the source image
+      - Write results to data/curves/digitized/{slug}.json
+    """
+    repo = Path(__file__).resolve().parent.parent.parent
+    source_dir = repo / "data" / "curves" / "sources"
+    mask_dir = repo / "data" / "curves" / "masks"
+    out_dir = repo / "data" / "curves" / "digitized"
     tmp_dir = Path("/tmp/poser")
+    out_dir.mkdir(parents=True, exist_ok=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.single:
-        # Single-mic graph mode
-        mic_id = args.id1
-        if args.image:
-            image_path = args.image
+    for mic_id, slug in sorted(MIC_SLUGS.items(), key=lambda x: x[1]):
+        name = RH_MIC_NAMES[mic_id]
+        source_path = source_dir / f"{slug}.png"
+        print(f"\n--- {name} ({slug}) ---")
+
+        if not source_path.exists():
+            print(f"  SKIP: no source image (run 'prepare' first)")
+            continue
+
+        # Check for hand-edited masks
+        edited_masks = sorted(mask_dir.glob(f"{slug}_*.png"))
+
+        if edited_masks:
+            # Digitize each edited mask as a separate curve
+            all_curves = []
+            for mask_path in edited_masks:
+                print(f"  Mask: {mask_path.name}")
+                results = _digitize_mask(mask_path, mic_id, mask_dir)
+                curves = _results_to_curve_list(results)
+                if curves:
+                    # Use the first (should be only) curve from each mask
+                    all_curves.append(curves[0])
+
+            if all_curves:
+                # Re-index
+                for i, c in enumerate(all_curves):
+                    c["index"] = i
+
+                output = {
+                    "source": f"https://recordinghacks.com/graphs2.php/{mic_id}",
+                    "mic_id": mic_id,
+                    "mic_name": name,
+                    "slug": slug,
+                    "mode": "single",
+                    "hand_edited": True,
+                    "curves": {
+                        "single": {
+                            "num_curves": len(all_curves),
+                            "curves": all_curves,
+                        }
+                    },
+                }
+            else:
+                print(f"  WARNING: no curves extracted from edited masks")
+                continue
         else:
-            image_path = tmp_dir / f"single_{mic_id}.png"
-            download_single_graph(mic_id, image_path)
+            # No edited masks — digitize source image directly
+            results = digitize_single(source_path)
+            curve_list = _results_to_curve_list(results)
 
-        results = digitize_single(image_path)
-
-        output = {
-            "source": f"https://recordinghacks.com/graphs2.php/{mic_id}",
-            "mic_ids": [mic_id],
-            "mic_names": [RH_MIC_NAMES.get(mic_id, mic_id)],
-            "mode": "single",
-            "curves": {},
-        }
-        if "single" in results:
-            curve_list = []
-            for i, data in enumerate(results["single"]["curves"]):
-                curve_list.append({
-                    "index": i,
-                    "points": len(data),
-                    "data": [{"hz": hz, "db": db} for hz, db in data],
-                })
-            output["curves"]["single"] = {
-                "num_curves": len(curve_list),
-                "curves": curve_list,
+            output = {
+                "source": f"https://recordinghacks.com/graphs2.php/{mic_id}",
+                "mic_id": mic_id,
+                "mic_name": name,
+                "slug": slug,
+                "mode": "single",
+                "hand_edited": False,
+                "curves": {},
             }
+            if curve_list:
+                output["curves"]["single"] = {
+                    "num_curves": len(curve_list),
+                    "curves": curve_list,
+                }
 
-        json_path = args.output or (data_dir / f"single-{mic_id}.json")
+        json_path = out_dir / f"{slug}.json"
         with open(json_path, "w") as f:
             json.dump(output, f, indent=2)
-        print(f"\nWrote {json_path}")
+
+        n = output.get("curves", {}).get("single", {}).get("num_curves", 0)
+        edited = " (hand-edited)" if output.get("hand_edited") else ""
+        print(f"  Wrote {json_path}: {n} curve(s){edited}")
 
         for c in output.get("curves", {}).get("single", {}).get("curves", []):
             pts = c["data"]
             if pts:
                 freqs = [p["hz"] for p in pts]
                 dbs = [p["db"] for p in pts]
-                print(f"  Curve {c['index']}: {c['points']} pts, "
-                      f"{min(freqs):.0f}-{max(freqs):.0f}Hz, "
-                      f"{min(dbs):.1f} to {max(dbs):.1f} dB")
-
-        # Comparison plot
-        plot_path = tmp_dir / f"single-{mic_id}_comparison.png"
-        make_comparison_plot(image_path, output["curves"], plot_path, [mic_id])
-        return
-
-    # Comparison mode (original behavior)
-    extract = "both"
-    if args.first:
-        extract = "first"
-    elif args.second:
-        extract = "second"
-
-    if args.image:
-        image_path = args.image
-    else:
-        image_path = tmp_dir / f"{args.id1}-{args.id2}.png"
-        download_graph(args.id1, args.id2, image_path)
-
-    # Digitize
-    results = digitize(image_path, extract=extract)
-
-    # Build JSON output — all curves, not just one
-    output = {
-        "source": f"https://recordinghacks.com/graphs2.php/{args.id1}-{args.id2}",
-        "mic_ids": [args.id1, args.id2],
-        "mic_names": [RH_MIC_NAMES.get(args.id1, args.id1), RH_MIC_NAMES.get(args.id2, args.id2)],
-        "mode": "comparison",
-        "curves": {},
-    }
-    for key in ("first", "second"):
-        if key in results:
-            curve_list = []
-            for i, data in enumerate(results[key]["curves"]):
-                curve_list.append({
-                    "index": i,
-                    "points": len(data),
-                    "data": [{"hz": hz, "db": db} for hz, db in data],
-                })
-            output["curves"][key] = {
-                "num_curves": len(curve_list),
-                "curves": curve_list,
-            }
-
-    # Write JSON (data goes in repo)
-    json_path = args.output or (data_dir / f"{args.id1}-{args.id2}.json")
-    with open(json_path, "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"\nWrote {json_path}")
-
-    for key, label in [("first", "First"), ("second", "Second")]:
-        if key in output["curves"]:
-            info = output["curves"][key]
-            print(f"  {label}: {info['num_curves']} curve(s)")
-            for c in info["curves"]:
-                freqs = [p["hz"] for p in c["data"]]
-                dbs = [p["db"] for p in c["data"]]
                 print(f"    [{c['index']}] {c['points']} pts, "
                       f"{min(freqs):.0f}-{max(freqs):.0f}Hz, "
                       f"{min(dbs):.1f} to {max(dbs):.1f} dB")
 
-    # Comparison plot (ephemeral, goes to /tmp)
-    plot_path = tmp_dir / f"{args.id1}-{args.id2}_comparison.png"
-    make_comparison_plot(image_path, output["curves"], plot_path, [args.id1, args.id2])
+        # Comparison plot
+        plot_path = tmp_dir / f"{slug}_comparison.png"
+        make_comparison_plot(source_path, output["curves"], plot_path, [mic_id])
+
+    print(f"\nDone. JSONs in {out_dir}/")
+    print(f"Plots in {tmp_dir}/")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Digitize RecordingHacks frequency response curves",
+        epilog="Workflow: run 'prepare' → edit masks if needed → run 'build'",
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("prepare",
+                    help="Download sources, export masks, report which need editing")
+    sub.add_parser("build",
+                    help="Digitize all masks → JSON curves")
+
+    # Legacy single-mic mode (for one-off use)
+    parser.add_argument("--single", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--mask", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--from-mask", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--image", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--output", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("id1", nargs="?", help=argparse.SUPPRESS)
+    parser.add_argument("id2", nargs="?", help=argparse.SUPPRESS)
+
+    args = parser.parse_args()
+
+    if args.command == "prepare":
+        cmd_prepare(args)
+    elif args.command == "build":
+        cmd_build(args)
+    elif args.command is None:
+        parser.print_help()
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
