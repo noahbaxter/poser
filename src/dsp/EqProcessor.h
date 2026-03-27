@@ -65,7 +65,8 @@ public:
         float masterPush;
         float lowCutHz, highCutHz;
         int curveMode;
-        bool cabLpf;
+        bool cabFilter;
+        bool gainComp;
         double sampleRate;
     };
 
@@ -109,23 +110,32 @@ public:
             magnitudeResponse[i] = std::pow(10.0f, totalDb / 20.0f);
         }
 
-        // RMS gain compensation — before cab LPF so the filter doesn't affect it
-        float sumSq = 0.0f;
-        for (int i = 0; i < kComplexSize; ++i)
-            sumSq += magnitudeResponse[i] * magnitudeResponse[i];
-        float rms = std::sqrt(sumSq / static_cast<float>(kComplexSize));
-        if (rms > 0.001f)
+        // RMS gain compensation — before cab filter so the filter doesn't affect it
+        if (p.gainComp)
         {
-            float comp = 1.0f / rms;
+            float sumSq = 0.0f;
             for (int i = 0; i < kComplexSize; ++i)
-                magnitudeResponse[i] *= comp;
+                sumSq += magnitudeResponse[i] * magnitudeResponse[i];
+            float rms = std::sqrt(sumSq / static_cast<float>(kComplexSize));
+            if (rms > 0.001f)
+            {
+                float comp = 1.0f / rms;
+                for (int i = 0; i < kComplexSize; ++i)
+                    magnitudeResponse[i] *= comp;
+            }
         }
 
-        // Cab LPF applied after compensation — purely additive filter
-        if (p.cabLpf)
+        // Cab/speaker filter applied after compensation — per-cab HPF × per-speaker LPF
+        if (p.cabFilter)
         {
             for (int i = 0; i < kComplexSize; ++i)
-                magnitudeResponse[i] *= ::CurveData::kCabLPF[binMapping[i]];
+            {
+                int cb = binMapping[i];
+                if (p.cabSel >= 0 && p.cabSel < ::CurveData::kNumCabHPFs)
+                    magnitudeResponse[i] *= ::CurveData::kCabHPFs[p.cabSel].data[cb];
+                if (p.speakerSel >= 0 && p.speakerSel < ::CurveData::kNumSpeakerLPFs)
+                    magnitudeResponse[i] *= ::CurveData::kSpeakerLPFs[p.speakerSel].data[cb];
+            }
         }
     }
 

@@ -264,56 +264,126 @@ def generate_header():
     out.append("};")
     out.append("")
 
-    # Cab LPF: modeled from real cab IR data as a simple bandpass shape.
-    # Real cabs are essentially a bandpass: HPF below ~80Hz, LPF above ~6kHz.
-    # We model this as two smooth rolloffs meeting at unity in the passband,
-    # rather than using the raw (noisy) IR average directly.
-    cab_lpf_path = REPO / "data" / "ir" / "v30_cab_comparison.json"
-    if cab_lpf_path.exists():
-        with open(cab_lpf_path) as f:
-            ir_data = json.load(f)
-        ir_freqs = np.array(ir_data["frequencies_hz"])
-        all_cab_mags = [np.array(ir_data["cabs"][n]["magnitude_db"])
-                        for n in ir_data["cabs"]]
-        avg_cab = np.mean(all_cab_mags, axis=0)
+    # Per-cab HPF and per-speaker LPF filters, measured from IR data.
+    # Cab (box) controls low-end rolloff, speaker (cone) controls high-end rolloff.
+    # Each stored as a 512-point linear gain array. "Flat" = all 1.0 (no filter).
+    target_freqs = np.array(freqs)
 
-        # Interpolate onto our frequency grid
-        target_freqs = np.array(freqs)
-        log_ir = np.log10(np.maximum(ir_freqs, 1.0))
-        log_tgt = np.log10(np.maximum(target_freqs, 1.0))
-        cab_curve = np.interp(log_tgt, log_ir, avg_cab)
+    # Per-cab HPF: measured -3dB points and slopes from v30_cab_comparison.json
+    cab_hpf_params = {
+        "412 DZL": (78.0, 24.0),   # (f_3db Hz, slope dB/oct)
+        "412 MAR": (93.0, 19.0),
+        "412 MES": (98.0, 16.0),
+        "412 ORN": (94.0, 12.0),
+    }
 
-        # Find the average level in the passband (100Hz-4kHz) as our 0dB reference
-        passband = (target_freqs >= 100) & (target_freqs <= 4000)
-        ref_db = np.mean(cab_curve[passband])
-        cab_curve -= ref_db  # passband averages to 0dB
+    # Per-speaker LPF: measured -3dB points, all 12dB/oct
+    speaker_lpf_params = {
+        "12K":  4366.0,
+        "EDVH": 5380.0,
+        "G80":  4435.0,
+        "GOV":  5149.0,
+        "H30":  5040.0,
+        "M25":  5602.0,
+        "T75":  4406.0,
+        "V30":  4920.0,
+    }
 
-        # Build a clean bandpass: unity in passband, rolloff at edges
-        # HPF: 12dB/oct below 80Hz (2nd order)
-        # LPF: 12dB/oct above 6kHz (2nd order)
-        cab_lpf_db = np.zeros(len(target_freqs))
+    def build_hpf(f3db, slope_db_oct):
+        db = np.zeros(len(target_freqs))
         for i, f in enumerate(target_freqs):
-            if f < 80:
-                # HPF rolloff: 12dB/octave
-                cab_lpf_db[i] = 12.0 * np.log2(max(f, 1.0) / 80.0)
-            elif f > 6000:
-                # LPF rolloff: 12dB/octave
-                cab_lpf_db[i] = -12.0 * np.log2(f / 6000.0)
+            if f < f3db:
+                db[i] = slope_db_oct * np.log2(max(f, 1.0) / f3db)
+        return (10.0 ** (db / 20.0)).tolist()
 
-        cab_lpf_linear = (10.0 ** (cab_lpf_db / 20.0)).tolist()
+    def build_lpf(f3db, slope_db_oct=12.0):
+        db = np.zeros(len(target_freqs))
+        for i, f in enumerate(target_freqs):
+            if f > f3db:
+                db[i] = -slope_db_oct * np.log2(f / f3db)
+        return (10.0 ** (db / 20.0)).tolist()
 
-        out.append("// Cab bandpass filter — modeled from real cab IRs.")
-        out.append("// Unity (1.0) from 80Hz-6kHz, 12dB/oct HPF below, 12dB/oct LPF above.")
-        out.append(f"static constexpr float kCabLPF[] = {{")
-        out.append(format_float_array(cab_lpf_linear))
+    # "Flat" filter = average of all measured values (generic cab/speaker physics).
+    # The filter should always do something when toggled ON, even with Flat selection.
+    avg_hpf_f3db = np.mean([p[0] for p in cab_hpf_params.values()])
+    avg_hpf_slope = np.mean([p[1] for p in cab_hpf_params.values()])
+    avg_lpf_f3db = np.mean(list(speaker_lpf_params.values()))
+
+    avg_cab_hpf = build_hpf(avg_hpf_f3db, avg_hpf_slope)
+    avg_speaker_lpf = build_lpf(avg_lpf_f3db)
+
+    out.append(f"// Average cab HPF — {avg_hpf_f3db:.0f}Hz, {avg_hpf_slope:.0f}dB/oct (used for Flat selection)")
+    out.append("static constexpr float kCabHPF_Avg[] = {")
+    out.append(format_float_array(avg_cab_hpf))
+    out.append("};")
+    out.append("")
+    print(f"  Cab HPF Avg: -{avg_hpf_slope:.0f}dB/oct below {avg_hpf_f3db:.0f}Hz")
+
+    out.append(f"// Average speaker LPF — {avg_lpf_f3db:.0f}Hz, 12dB/oct (used for Flat selection)")
+    out.append("static constexpr float kSpeakerLPF_Avg[] = {")
+    out.append(format_float_array(avg_speaker_lpf))
+    out.append("};")
+    out.append("")
+    print(f"  Speaker LPF Avg: -12dB/oct above {avg_lpf_f3db:.0f}Hz")
+
+    # Per-cab HPF arrays
+    cab_hpf_names = sorted(cab_hpf_params.keys())
+    for name in cab_hpf_names:
+        f3db, slope = cab_hpf_params[name]
+        ident = sanitize_ident(name)
+        linear = build_hpf(f3db, slope)
+        out.append(f"// Cab HPF: {name} — {f3db:.0f}Hz, {slope:.0f}dB/oct")
+        out.append(f"static constexpr float kCabHPF_{ident}[] = {{")
+        out.append(format_float_array(linear))
         out.append("};")
         out.append("")
+        print(f"  Cab HPF {name}: -{slope:.0f}dB/oct below {f3db:.0f}Hz")
 
-        for label, freq in [("20", 20), ("40", 40), ("80", 80), ("1k", 1000),
-                             ("6k", 6000), ("10k", 10000), ("16k", 16000)]:
-            idx = int(np.argmin(np.abs(target_freqs - freq)))
-            print(f"  Cab LPF @ {label}: {cab_lpf_db[idx]:+.1f}dB ({cab_lpf_linear[idx]:.3f})")
-        print(f"Cab LPF: 12dB/oct HPF<80Hz + LPF>6kHz (from {len(all_cab_mags)} cab IRs)")
+    # Per-speaker LPF arrays
+    speaker_lpf_names = sorted(speaker_lpf_params.keys())
+    for name in speaker_lpf_names:
+        f3db = speaker_lpf_params[name]
+        ident = sanitize_ident(name)
+        linear = build_lpf(f3db)
+        out.append(f"// Speaker LPF: {name} — {f3db:.0f}Hz, 12dB/oct")
+        out.append(f"static constexpr float kSpeakerLPF_{ident}[] = {{")
+        out.append(format_float_array(linear))
+        out.append("};")
+        out.append("")
+        print(f"  Speaker LPF {name}: -12dB/oct above {f3db:.0f}Hz")
+
+    # Cab HPF lookup table: Flat (average) + per-cab entries
+    cab_hpf_entries = ['    {"Flat", kCabHPF_Avg}']
+    for name in cab_hpf_names:
+        ident = sanitize_ident(name)
+        dname = re.sub(r"^\d+\s+", "", name)
+        cab_hpf_entries.append(f'    {{"{dname}", kCabHPF_{ident}}}')
+    out.append("static constexpr Curve kCabHPFs[] = {")
+    out.append(",\n".join(cab_hpf_entries))
+    out.append("};")
+    out.append(f"static constexpr int kNumCabHPFs = {len(cab_hpf_entries)};")
+    out.append("")
+    print(f"CabHPFs: {len(cab_hpf_entries)} (1 flat + {len(cab_hpf_names)} measured)")
+
+    # Speaker LPF lookup table: Flat (average) + per-speaker entries
+    speaker_lpf_entries = ['    {"Flat", kSpeakerLPF_Avg}']
+    for name in speaker_lpf_names:
+        ident = sanitize_ident(name)
+        speaker_lpf_entries.append(f'    {{"{name}", kSpeakerLPF_{ident}}}')
+    out.append("static constexpr Curve kSpeakerLPFs[] = {")
+    out.append(",\n".join(speaker_lpf_entries))
+    out.append("};")
+    out.append(f"static constexpr int kNumSpeakerLPFs = {len(speaker_lpf_entries)};")
+    out.append("")
+    print(f"SpeakerLPFs: {len(speaker_lpf_entries)} (1 flat + {len(speaker_lpf_names)} measured)")
+
+    # Flat character curve (all zeros) — used as index 0 for cab and speaker
+    flat_character = [0.0] * num_bins
+    out.append("// Flat character — no tonal coloration.")
+    out.append("static constexpr float kCharacter_Flat[] = {")
+    out.append(format_float_array(flat_character))
+    out.append("};")
+    out.append("")
 
     for comp_type in ("cab", "speaker", "mic", "position"):
         if comp_type not in components:
@@ -335,6 +405,9 @@ def generate_header():
             out.append("")
 
         entries = []
+        # Prepend "Flat" for cab and speaker (index 0 = no character)
+        if comp_type in ("cab", "speaker"):
+            entries.append('    {"Flat", kCharacter_Flat}')
         for name in sorted_names:
             ident = sanitize_ident(name)
             var_name = f"k{singular}_{ident}"
@@ -344,9 +417,9 @@ def generate_header():
         out.append(f"static constexpr Curve k{plural}[] = {{")
         out.append(",\n".join(entries))
         out.append("};")
-        out.append(f"static constexpr int kNum{plural} = {len(sorted_names)};")
+        out.append(f"static constexpr int kNum{plural} = {len(entries)};")
         out.append("")
-        print(f"{plural}: {len(sorted_names)}")
+        print(f"{plural}: {len(entries)}")
 
     # Mic groups — map group names to indices into kMics[] (alphabetically sorted)
     if "mic" in components:

@@ -28,9 +28,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"mic_select", 1}, "Mic Select", 0, 15, 1));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"cab_select", 1}, "Cab Select", 0, 3, 2));
+        juce::ParameterID{"cab_select", 1}, "Cab Select", 0, 4, 3));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"speaker_select", 1}, "Speaker Select", 0, 7, 7));
+        juce::ParameterID{"speaker_select", 1}, "Speaker Select", 0, 8, 8));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"position_select", 1}, "Position Select", 0, 12, 5));
 
@@ -69,7 +69,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"curve_mode", 1}, "Curve Mode", 0, 2, 0));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID{"cab_lpf", 1}, "Cab LPF", false));
+        juce::ParameterID{"cab_filter", 1}, "Cab Filter", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"gain_comp", 1}, "Gain Comp", true));
 
     return {params.begin(), params.end()};
 }
@@ -92,7 +94,7 @@ void PoserProcessor::releaseResources() {}
 
 void PoserProcessor::updateEqIfNeeded()
 {
-    float params[14] = {
+    float params[15] = {
         apvts.getRawParameterValue("mic_select")->load(),
         apvts.getRawParameterValue("cab_select")->load(),
         apvts.getRawParameterValue("speaker_select")->load(),
@@ -106,7 +108,8 @@ void PoserProcessor::updateEqIfNeeded()
         apvts.getRawParameterValue("curve_low_cut")->load(),
         apvts.getRawParameterValue("curve_high_cut")->load(),
         apvts.getRawParameterValue("curve_mode")->load(),
-        apvts.getRawParameterValue("cab_lpf")->load(),
+        apvts.getRawParameterValue("cab_filter")->load(),
+        apvts.getRawParameterValue("gain_comp")->load(),
     };
 
     if (!needsResponseUpdate && std::memcmp(params, prevParams, sizeof(params)) == 0)
@@ -128,7 +131,8 @@ void PoserProcessor::updateEqIfNeeded()
         .lowCutHz    = params[10],
         .highCutHz   = params[11],
         .curveMode   = static_cast<int>(params[12]),
-        .cabLpf      = params[13] >= 0.5f,
+        .cabFilter   = params[13] >= 0.5f,
+        .gainComp    = params[14] >= 0.5f,
         .sampleRate  = currentSampleRate,
     });
 }
@@ -151,7 +155,7 @@ void PoserProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
     if (wrapperType == wrapperType_Standalone)
     {
         static juce::Random rng;
-        float noiseGain = juce::Decibels::decibelsToGain(-12.0f);
+        float noiseGain = juce::Decibels::decibelsToGain(-27.0f);
         for (int ch = 0; ch < numChannels; ++ch)
         {
             auto* data = buffer.getWritePointer(ch);
