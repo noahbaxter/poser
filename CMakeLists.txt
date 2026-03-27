@@ -81,7 +81,7 @@ target_sources(Poser
         third_party/AudioFFT/AudioFFT.cpp
 )
 
-target_include_directories(Poser PRIVATE third_party/AudioFFT)
+target_include_directories(Poser PRIVATE third_party/AudioFFT src)
 
 # Enable Apple Accelerate backend for AudioFFT on macOS
 if(APPLE)

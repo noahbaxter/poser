@@ -114,6 +114,12 @@ needs_reconfigure() {
     return 1
 }
 
+# Always regenerate curve data — deterministic, ~2s, cmake skips if unchanged
+if [ "$MODE" != "Clean" ] && [ "$MODE" != "Uninstall" ]; then
+    echo -e "${YELLOW}Regenerating curve data...${NC}"
+    python3 "$PROJECT_ROOT/tools/curves/manage.py" build
+fi
+
 case "$MODE" in
     Clean)
         echo -e "\n${YELLOW}Cleaning build artifacts...${NC}"
