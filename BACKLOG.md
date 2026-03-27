@@ -2,11 +2,18 @@
 
 ## Up Next
 
-- [x] `feature` **Backend-driven UI** — component lists come from C++ at init via evaluateJavascript. Done.
-- [x] `feature` **Mic categorization** — group buttons (Vocal/Instrument/Kick/Condenser/Ribbon). Done.
-- [ ] `feature` **Cab+Speaker grouping** — cab and speaker should be a single UI section. Pick a cab, pick a speaker. The cab HPF + speaker LPF combine as a toggleable bandpass filter. Offer "flat" options for both. Per-cab HPF and per-speaker LPF are already measured. Needs: UI redesign from 4 tabs to 3 (Mic, Cab+Speaker, Position), new combined filter in DSP, "flat cab" and "flat speaker" options.
-- [ ] `feature` **Write DSP/decomposition doc** — explain the signal model (IR = cab × speaker × mic × position), what the decomposition extracts, how character extraction works, how gain compensation works. Put in docs/dsp.md. This is getting complex enough to warrant a reference doc.
-- [ ] `feature` **Curve viewer** — collapsible panel from bottom of plugin showing composite EQ curve.
+- [ ] `feature` **UI redesign** — Full overhaul. Summary:
+  - 560×560 square window, CSS custom properties for all sizes
+  - 2 tabs: MIC (big ring + 3 groups) and CAB (split: selector lists + visual preview)
+  - CAB preview: color-coded cabinet wireframe + speaker cone + draggable mic position
+  - Position: interactive slider across speaker cone (0=center, 10=edge, EDGE/FRED discrete)
+  - Blend panel: 4 rows (MIC/CAB/SPK/POS) with toggle + blend knob, always visible
+  - Scale knob centered, always visible, above bottom controls
+  - Bottom-left: LO, TRIM, HI, FLT toggle, CMP toggle
+  - Defaults: MIC ON (SM57), CAB/SPK/POS OFF (Flat/center, 100% blend saved)
+  - CAB tab grayed out (not hidden) when all cab components OFF
+  - Mic groups: 3 (Drum/Vocal/Instrument), mics can be in multiple groups
+- [ ] `feature` **EQ curve viewer** — toggle extends window taller. Shows composite magnitude response (curves × blend × scale + cab filter). No gain comp in display.
 - [ ] `feature` **More cabs** — expand beyond 4 cab configurations. Source additional IR data for cab/speaker filter parameters.
 - [ ] `idea` **Speaker size parameter** — shift the LPF point based on theoretical speaker diameter (10"/12"/15"). Physical model: bigger cone = lower rolloff.
 
@@ -61,6 +68,12 @@
 
 ## Done
 
+- [x] Per-cab HPF + per-speaker LPF filters (measured from IR data)
+- [x] Gain comp toggle (on/off)
+- [x] Flat cab/speaker use average filter values (filter always filters when ON)
+- [x] DSP reference doc (docs/dsp.md)
+- [x] Backend-driven UI, mic groups (5 categories)
+- [x] Cab+Speaker grouping in DSP (per-cab HPF × per-speaker LPF)
 - [x] 16 mic curves from ATK + RecordingHacks digitization pipeline
 - [x] Mask-based digitization with hand-editing for multi-curve mics
 - [x] Character extraction (subtract average mic rolloff, safety taper)
