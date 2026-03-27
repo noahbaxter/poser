@@ -95,6 +95,10 @@ html, body {
     cursor: default;
 }
 
+.blend-knob.disabled .knob-indicator {
+    display: none;
+}
+
 .blend-knob .knob-visual {
     position: absolute;
     inset: 0;

@@ -163,6 +163,12 @@ def format_float_array(values):
     return ",\n".join(lines)
 
 
+
+# Gain compensation is now done at runtime in PluginProcessor.cpp — it measures
+# the RMS of the actual combined magnitude response and normalizes to unity.
+# No precomputed LUTs needed.
+
+
 def generate_header():
     """Generate src/CurveData.h from extracted_components.json."""
     with open(COMPONENTS_JSON) as f:
@@ -171,6 +177,7 @@ def generate_header():
     freqs = data["frequencies_hz"]
     components = data["components"]
     num_bins = len(freqs)
+
 
     out = []
     out.append("#pragma once")

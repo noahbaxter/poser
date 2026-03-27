@@ -13,7 +13,7 @@ function normToSelect(norm, max) { return Math.round(norm * max); }
 
 // ---- Component definitions ----
 const COMPONENTS = {
-    mic:      { label: 'MIC',  options: ['C414', 'SM57', 'SM58', 'SM7B', 'U87'] },
+    mic:      { label: 'MIC',  options: ['Beta 52A', 'C414', 'C451 B', 'Coles 4038', 'D112', 'D6', 'KM184', 'M88 TG', 'MD421', 'R84', 'RE20', 'SM57', 'SM58', 'SM7B', 'U87', 'e906'] },
     cab:      { label: 'CAB',  options: ['DZL', 'MAR', 'MES', 'ORN'] },
     speaker:  { label: 'SPK',  options: ['12K', 'EDVH', 'G80', 'GOV', 'H30', 'M25', 'T75', 'V30'] },
     position: { label: 'POS',  options: ['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', 'EDGE', 'FRED'] },
@@ -167,7 +167,7 @@ for (const [id, comp] of Object.entries(COMPONENTS)) {
 
 // ---- Build master knobs ----
 
-const pushKnob = new Knob(document.getElementById('master-push'), {
+const scaleKnob = new Knob(document.getElementById('master-push'), {
     param: 'master_push',
     min: -500, max: 500, step: 1,
     defaultValue: 100,

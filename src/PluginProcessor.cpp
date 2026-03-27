@@ -23,7 +23,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"mic_select", 1}, "Mic Select", 0, 4, 1));
+        juce::ParameterID{"mic_select", 1}, "Mic Select", 0, 15, 1));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"cab_select", 1}, "Cab Select", 0, 3, 2));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
@@ -45,7 +45,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{"master_push", 1}, "Master Push",
+        juce::ParameterID{"master_push", 1}, "Scale",
         juce::NormalisableRange<float>(-5.0f, 5.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"output_trim", 1}, "Output Trim",
@@ -222,16 +222,18 @@ void PoserProcessor::recomputeMagnitudeResponse()
         magnitudeResponse[i] = std::pow(10.0f, totalDb / 20.0f);
     }
 
-    // Auto-gain compensation: normalize so average gain ≈ 1.0
-    // This prevents volume spikes when switching presets
-    float avgGain = 0.0f;
+    // Gain compensation: measure RMS power of the actual combined magnitude
+    // response and scale so the EQ doesn't change overall loudness.
+    // Uses energy-weighted average (sum of squared gains / N) to match
+    // what white noise would measure through this EQ.
+    float sumSquared = 0.0f;
     for (int i = 0; i < complexSize; ++i)
-        avgGain += magnitudeResponse[i];
-    avgGain /= static_cast<float>(complexSize);
+        sumSquared += magnitudeResponse[i] * magnitudeResponse[i];
+    float rmsGain = std::sqrt(sumSquared / static_cast<float>(complexSize));
 
-    if (avgGain > 0.001f)
+    if (rmsGain > 0.001f)
     {
-        float compensation = 1.0f / avgGain;
+        float compensation = 1.0f / rmsGain;
         for (int i = 0; i < complexSize; ++i)
             magnitudeResponse[i] *= compensation;
     }
