@@ -16,6 +16,7 @@ import {
     parameterDragStarted,
     parameterDragEnded,
 } from '../../lib/juce-bridge.js';
+import { scrollDelta } from '../../lib/scroll.js';
 
 function selectToNorm(index, max) { return index / max; }
 function normToSelect(norm, max) { return Math.round(norm * max); }
@@ -69,7 +70,7 @@ export class Selector {
             // Scroll wheel on group bar: up = right, down = left, block at edges
             this.groupBar.addEventListener('wheel', (e) => {
                 e.preventDefault();
-                const next = this.currentGroupIdx + (e.deltaY < 0 ? 1 : -1);
+                const next = this.currentGroupIdx + (scrollDelta(e) < 0 ? 1 : -1);
                 if (next >= 0 && next < this.groups.length) {
                     this._switchToGroup(next);
                 }
@@ -223,7 +224,7 @@ export class Selector {
                         if (this._entryForGlobal(this.currentGlobalIndex) !== entIdx) {
                             this._selectLocalFromUser(i);
                         }
-                        this._cycleVariant(e.deltaY > 0 ? -1 : 1);
+                        this._cycleVariant(scrollDelta(e) > 0 ? -1 : 1);
                     });
                 }
 
@@ -450,7 +451,7 @@ export class Selector {
 
         this.wrap.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const direction = e.deltaY > 0 ? -1 : 1;
+            const direction = scrollDelta(e) > 0 ? -1 : 1;
 
             // Shift+scroll = cycle variants within current mic
             if (e.shiftKey && this.entries) {

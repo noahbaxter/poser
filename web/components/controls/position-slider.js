@@ -10,6 +10,7 @@ import {
     parameterDragStarted,
     parameterDragEnded,
 } from '../../lib/juce-bridge.js';
+import { scrollDelta } from '../../lib/scroll.js';
 
 function selectToNorm(index, max) { return index / max; }
 function normToSelect(norm, max) { return Math.round(norm * max); }
@@ -133,7 +134,7 @@ export class PositionSlider {
         this.el.addEventListener('wheel', (e) => {
             e.preventDefault();
             const curVisual = this._dataToVisual(this.currentDataIndex);
-            const nextVisual = curVisual + (e.deltaY < 0 ? 1 : -1);
+            const nextVisual = curVisual + (scrollDelta(e) < 0 ? 1 : -1);
             if (nextVisual >= 0 && nextVisual < this.visualOrder.length) {
                 this._selectFromUser(this._visualToData(nextVisual));
             }

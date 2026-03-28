@@ -133,7 +133,7 @@ void PoserEditor::pushInitData()
     };
 
     comps->setProperty("mic", makeComp("MIC", "mic_select", "mic_blend",
-        buildOptions(CurveData::kMics, CurveData::kNumMics)));
+        buildOptions(::CurveData::kMics, ::CurveData::kNumMics)));
 
     // Cabinet: combined cab + speaker as sub-components
     {
@@ -141,15 +141,27 @@ void PoserEditor::pushInitData()
         cabinet->setProperty("label", "CAB");
         cabinet->setProperty("type", "cabinet");
         cabinet->setProperty("cab", makeComp("CAB", "cab_select", "cab_blend",
-            buildOptions(CurveData::kCabs, CurveData::kNumCabs)));
+            buildOptions(::CurveData::kCabs, ::CurveData::kNumCabs)));
         cabinet->setProperty("speaker", makeComp("SPK", "speaker_select", "speaker_blend",
-            buildOptions(CurveData::kSpeakers, CurveData::kNumSpeakers)));
+            buildOptions(::CurveData::kSpeakers, ::CurveData::kNumSpeakers)));
         comps->setProperty("cabinet", cabinet);
     }
 
     comps->setProperty("position", makeComp("POS", "position_select", "position_blend",
-        buildOptions(CurveData::kPositions, CurveData::kNumPositions)));
+        buildOptions(::CurveData::kPositions, ::CurveData::kNumPositions)));
     root->setProperty("components", comps);
+
+    // Mic entries (variant grouping)
+    juce::Array<juce::var> micEntries;
+    for (int e = 0; e < ::CurveData::kNumMicEntries; ++e)
+    {
+        auto* entry = new juce::DynamicObject();
+        entry->setProperty("name", juce::String(::CurveData::kMicEntries[e].name));
+        entry->setProperty("firstIndex", ::CurveData::kMicEntries[e].firstIndex);
+        entry->setProperty("numVariants", ::CurveData::kMicEntries[e].numVariants);
+        micEntries.add(entry);
+    }
+    root->setProperty("micEntries", micEntries);
 
     // Mic groups
     juce::Array<juce::var> groups;
@@ -180,6 +192,24 @@ void PoserEditor::pushInitData()
         groups.add(group);
     }
     root->setProperty("micGroups", groups);
+
+    // Parameter metadata for web knobs
+    auto* paramsMeta = new juce::DynamicObject();
+    auto& apvts = audioProcessor.getAPVTS();
+    for (auto* param : apvts.processor.getParameters())
+    {
+        auto* rangedParam = dynamic_cast<juce::RangedAudioParameter*>(param);
+        if (!rangedParam) continue;
+        auto range = rangedParam->getNormalisableRange();
+        auto* info = new juce::DynamicObject();
+        info->setProperty("min", (double)range.start);
+        info->setProperty("max", (double)range.end);
+        info->setProperty("step", (double)range.interval);
+        info->setProperty("skew", (double)range.skew);
+        info->setProperty("defaultValue", (double)rangedParam->convertFrom0to1(rangedParam->getDefaultValue()));
+        paramsMeta->setProperty(rangedParam->getParameterID(), info);
+    }
+    root->setProperty("params", paramsMeta);
 
     juce::String json = juce::JSON::toString(juce::var(root));
     juce::String js = "if (window.__poser_init__ && !window.__poser_initialized__) window.__poser_init__(" + json + ");";
@@ -213,10 +243,13 @@ std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getResource(cons
         { "main.js",                        BinaryData::main_js,                BinaryData::main_jsSize,                 "text/javascript" },
         { "vars.css",                       BinaryData::vars_css,               BinaryData::vars_cssSize,                "text/css" },
         { "main.css",                       BinaryData::main_css,               BinaryData::main_cssSize,                "text/css" },
+        { "utils/control-config.js",        BinaryData::controlconfig_js,       BinaryData::controlconfig_jsSize,        "text/javascript" },
+        { "components/bottom-panel.js",     BinaryData::bottompanel_js,         BinaryData::bottompanel_jsSize,          "text/javascript" },
         { "components/controls/knob.js",    BinaryData::knob_js,                BinaryData::knob_jsSize,                 "text/javascript" },
         { "components/controls/selector.js",BinaryData::selector_js,            BinaryData::selector_jsSize,             "text/javascript" },
         { "components/controls/toggle.js",  BinaryData::toggle_js,              BinaryData::toggle_jsSize,               "text/javascript" },
         { "components/controls/position-slider.js", BinaryData::positionslider_js, BinaryData::positionslider_jsSize,  "text/javascript" },
+        { "lib/scroll.js",                  BinaryData::scroll_js,              BinaryData::scroll_jsSize,               "text/javascript" },
         { "lib/juce-bridge.js",             BinaryData::jucebridge_js,          BinaryData::jucebridge_jsSize,           "text/javascript" },
         { "lib/juce/index.js",              BinaryData::index_js,               BinaryData::index_jsSize,                "text/javascript" },
         { "lib/juce/check_native_interop.js", BinaryData::check_native_interop_js, BinaryData::check_native_interop_jsSize, "text/javascript" },

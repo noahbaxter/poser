@@ -71,11 +71,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
     // Curve shaping
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"curve_low_cut", 1}, "Curve Low Cut",
-        juce::NormalisableRange<float>(20.0f, 2000.0f, 1.0f, 0.3f), 20.0f,
+        juce::NormalisableRange<float>(20.0f, 1000.0f, 1.0f, 0.3f), 20.0f,
         juce::AudioParameterFloatAttributes().withLabel("Hz")));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"curve_high_cut", 1}, "Curve High Cut",
-        juce::NormalisableRange<float>(1000.0f, 20000.0f, 1.0f, 0.3f), 20000.0f,
+        juce::NormalisableRange<float>(2000.0f, 20000.0f, 1.0f, 0.3f), 20000.0f,
         juce::AudioParameterFloatAttributes().withLabel("Hz")));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"curve_mode", 1}, "Curve Mode", 0, 2, 0));

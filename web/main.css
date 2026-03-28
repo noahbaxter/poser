@@ -552,7 +552,7 @@ html, body {
     order: 2;
 }
 
-.master-knob {
+.master-knob, .push-knob {
     position: relative;
     width: var(--master-knob);
     height: var(--master-knob);
@@ -560,31 +560,31 @@ html, body {
     cursor: -webkit-grab;
 }
 
-.master-knob::before {
+.master-knob::before, .push-knob::before {
     content: '';
     position: absolute;
     inset: calc(-1 * var(--knob-hit-expand));
     z-index: 1;
 }
 
-.master-knob:active {
+.master-knob:active, .push-knob:active {
     cursor: grabbing;
 }
 
-.master-knob .knob-visual {
+.master-knob .knob-visual, .push-knob .knob-visual {
     position: absolute;
     inset: 0;
     pointer-events: none;
 }
 
-.master-knob .knob-body {
+.master-knob .knob-body, .push-knob .knob-body {
     width: 100%;
     height: 100%;
     background: #000;
     border-radius: 50%;
 }
 
-.master-knob .knob-indicator {
+.master-knob .knob-indicator, .push-knob .knob-indicator {
     position: absolute;
     top: var(--master-indicator-offset);
     left: 50%;
@@ -596,13 +596,12 @@ html, body {
     pointer-events: none;
 }
 
-/* Bigger push knob */
-.push-knob, .push-group .master-knob {
+.push-knob {
     width: var(--master-knob-push);
     height: var(--master-knob-push);
 }
 
-.push-knob .knob-indicator, .push-group .master-knob .knob-indicator {
+.push-knob .knob-indicator {
     top: var(--master-indicator-push-offset);
     width: var(--master-indicator-push);
     height: var(--master-indicator-push);

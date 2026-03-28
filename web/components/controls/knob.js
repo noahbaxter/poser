@@ -23,6 +23,7 @@ import {
     parameterDragStarted,
     parameterDragEnded,
 } from '../../lib/juce-bridge.js';
+import { scrollDelta } from '../../lib/scroll.js';
 
 export class Knob {
     constructor(container, opts) {
@@ -31,6 +32,7 @@ export class Knob {
         this.min = opts.min ?? 0;
         this.max = opts.max ?? 1;
         this.step = opts.step ?? 0.01;
+        this.coarseStep = opts.coarseStep ?? this.step * 5;
         this.defaultValue = opts.defaultValue ?? this.min;
         this.formatValue = opts.formatValue ?? (v => `${v}`);
         this.tooltipAbove = opts.tooltipAbove ?? false;
@@ -108,15 +110,14 @@ export class Knob {
         this.el.addEventListener('wheel', (e) => {
             if (this.el.classList.contains('disabled')) return;
             e.preventDefault();
-            const direction = e.deltaY < 0 ? 1 : -1;
-            const coarse = this.step * 5;
+            const direction = scrollDelta(e) < 0 ? 1 : -1;
             let newVal;
             if (e.shiftKey) {
                 newVal = this.value + direction * this.step;
             } else {
                 // Snap to nearest coarse grid, then step in that direction
-                const snapped = Math.round(this.value / coarse) * coarse;
-                newVal = snapped + direction * coarse;
+                const snapped = Math.round(this.value / this.coarseStep) * this.coarseStep;
+                newVal = snapped + direction * this.coarseStep;
             }
             this._setFromUser(newVal);
             this._showTooltip();
