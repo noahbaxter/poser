@@ -34,6 +34,7 @@ const SPECTRUM_FILL_ALPHA   = 0.06;  // fill opacity
 const SPECTRUM_STROKE_ALPHA = 0.15;  // outline opacity
 
 // EQ curve visual
+const CURVE_SMOOTH_BINS  = 3;     // ±bins to average (0 = raw/jagged, 8 = smooth, 16 = very smooth)
 const CURVE_FILL_ALPHA   = 0.18;  // fill between curve and 0dB
 const CURVE_STROKE_WIDTH = 1.5;
 
@@ -464,46 +465,97 @@ export class FreqResponse {
             }
         }
 
-        // --- EQ curve (foreground) ---
+        // --- EQ curve (foreground, smoothed + cubic interpolation) ---
         if (this.compositeDb && this.curveData) {
             const freqs = this.curveData.frequencies;
             const N = freqs.length;
             const zeroY = dbToY(0);
 
-            // Fill between curve and 0dB
-            ctx.beginPath();
-            let started = false;
-            let firstX = 0, lastX = 0;
+            // Frequencies are already log-spaced (512 bins, 20Hz–20kHz).
+            // Smooth by averaging ±CURVE_SMOOTH_BINS neighboring bins —
+            // since bins are log-spaced, this gives constant-octave smoothing.
+            const smoothed = new Float32Array(N);
             for (let i = 0; i < N; i++) {
-                if (freqs[i] < MIN_FREQ || freqs[i] > MAX_FREQ) continue;
-                const x = freqToX(freqs[i]);
-                const y = dbToY(this.compositeDb[i]);
-                if (!started) { ctx.moveTo(x, y); firstX = x; started = true; }
-                else ctx.lineTo(x, y);
-                lastX = x;
+                const lo = Math.max(0, i - CURVE_SMOOTH_BINS);
+                const hi = Math.min(N - 1, i + CURVE_SMOOTH_BINS);
+                let sum = 0;
+                for (let j = lo; j <= hi; j++) sum += this.compositeDb[j];
+                smoothed[i] = sum / (hi - lo + 1);
             }
-            ctx.lineTo(lastX, zeroY);
-            ctx.lineTo(firstX, zeroY);
-            ctx.closePath();
-            ctx.fillStyle = `rgba(0, 0, 0, ${CURVE_FILL_ALPHA})`;
-            ctx.fill();
 
-            // Stroke
-            ctx.beginPath();
-            started = false;
+            // Build point array
+            const pts = [];
             for (let i = 0; i < N; i++) {
                 if (freqs[i] < MIN_FREQ || freqs[i] > MAX_FREQ) continue;
-                const x = freqToX(freqs[i]);
-                const y = dbToY(this.compositeDb[i]);
-                if (!started) { ctx.moveTo(x, y); started = true; }
-                else ctx.lineTo(x, y);
+                pts.push({ x: freqToX(freqs[i]), y: dbToY(smoothed[i]) });
             }
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = CURVE_STROKE_WIDTH;
-            ctx.stroke();
+
+            if (pts.length > 1) {
+                // Fill between curve and 0dB
+                ctx.beginPath();
+                traceCurveSmooth(ctx, pts);
+                ctx.lineTo(pts[pts.length - 1].x, zeroY);
+                ctx.lineTo(pts[0].x, zeroY);
+                ctx.closePath();
+                ctx.fillStyle = `rgba(0, 0, 0, ${CURVE_FILL_ALPHA})`;
+                ctx.fill();
+
+                // Stroke
+                ctx.beginPath();
+                traceCurveSmooth(ctx, pts);
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = CURVE_STROKE_WIDTH;
+                ctx.stroke();
+            }
         }
 
         ctx.restore();
+    }
+}
+
+// --- Monotone cubic spline through points (no overshoot) ---
+
+function traceCurveSmooth(ctx, pts) {
+    const n = pts.length;
+    if (n < 2) return;
+    ctx.moveTo(pts[0].x, pts[0].y);
+    if (n === 2) { ctx.lineTo(pts[1].x, pts[1].y); return; }
+
+    // Compute tangents using Fritsch-Carlson monotone method
+    const dx = [], dy = [], m = [];
+    for (let i = 0; i < n - 1; i++) {
+        dx[i] = pts[i + 1].x - pts[i].x;
+        dy[i] = pts[i + 1].y - pts[i].y;
+        m[i] = dx[i] === 0 ? 0 : dy[i] / dx[i];
+    }
+
+    const tangents = [m[0]];
+    for (let i = 1; i < n - 1; i++) {
+        if (m[i - 1] * m[i] <= 0) tangents[i] = 0;
+        else tangents[i] = (m[i - 1] + m[i]) / 2;
+    }
+    tangents[n - 1] = m[n - 2];
+
+    // Clamp tangents to ensure monotonicity
+    for (let i = 0; i < n - 1; i++) {
+        if (m[i] === 0) { tangents[i] = 0; tangents[i + 1] = 0; continue; }
+        const a = tangents[i] / m[i], b = tangents[i + 1] / m[i];
+        const s = a * a + b * b;
+        if (s > 9) {
+            const t = 3 / Math.sqrt(s);
+            tangents[i] = t * a * m[i];
+            tangents[i + 1] = t * b * m[i];
+        }
+    }
+
+    // Draw cubic Hermite segments
+    for (let i = 0; i < n - 1; i++) {
+        const d = dx[i] / 3;
+        ctx.bezierCurveTo(
+            pts[i].x + d, pts[i].y + tangents[i] * d,
+            pts[i + 1].x - d, pts[i + 1].y - tangents[i + 1] * d,
+            pts[i + 1].x, pts[i + 1].y
+        );
     }
 }
 
