@@ -6,6 +6,7 @@
 // the curve scale. Tracks slowly so you see spectral shape, not level.
 
 import { getNativeFunction, getParameterScaled, onParameterChange } from '../lib/juce-bridge.js';
+import { scrollDelta } from '../lib/scroll.js';
 
 // ============================================================
 // Tuning constants — adjust these to taste
@@ -69,7 +70,7 @@ export class FreqResponse {
         this.smoothedBins = null;
 
         // Y-axis scale (manual toggle)
-        this.scaleOptions = [6, 12, 24];
+        this.scaleOptions = [6, 12, 24, 36];
         this.scaleIndex = 0;
         this.scale = this.scaleOptions[this.scaleIndex];
 
@@ -84,7 +85,9 @@ export class FreqResponse {
         const handleScaleScroll = (e) => {
             if (!this.open) return;
             e.preventDefault();
-            const dir = e.deltaY > 0 ? 1 : -1;
+            const delta = scrollDelta(e);
+            if (delta === 0) return;
+            const dir = delta < 0 ? 1 : -1;
             this.cycleScale(dir);
         };
         viewerEl.addEventListener('wheel', handleScaleScroll, { passive: false });
@@ -116,8 +119,85 @@ export class FreqResponse {
         ro.observe(viewerEl);
     }
 
+    setCutKnobs(loCutKnob, hiCutKnob) {
+        this.loCutKnob = loCutKnob;
+        this.hiCutKnob = hiCutKnob;
+        this.loCutOrigMin = loCutKnob.min;
+        this.hiCutOrigMax = hiCutKnob.max;
+        this.savedLoCut = null;
+        this.savedHiCut = null;
+        this.loCutTouched = false;
+        this.hiCutTouched = false;
+        this.wasCabFilter = false;
+
+        // Track if user touches the knobs while FLT is on
+        loCutKnob.onChange = () => { if (this.wasCabFilter) this.loCutTouched = true; };
+        hiCutKnob.onChange = () => { if (this.wasCabFilter) this.hiCutTouched = true; };
+    }
+
+    updateCutRanges(p) {
+        const freqs = this.curveData.frequencies;
+        const threshold = 0.707; // -3dB
+
+        if (p.cabFilter) {
+            // Save values and reset touched flags on FLT toggle-on
+            if (!this.wasCabFilter) {
+                this.savedLoCut = this.loCutKnob.getValue();
+                this.savedHiCut = this.hiCutKnob.getValue();
+                this.loCutTouched = false;
+                this.hiCutTouched = false;
+            }
+
+            // Cab HPF: find -3dB point → new LO CUT minimum
+            let hpfCutoff = this.loCutOrigMin;
+            if (p.cabSel >= 0 && p.cabSel < this.curveData.cabHPFs.length) {
+                const hpf = this.curveData.cabHPFs[p.cabSel];
+                for (let i = 0; i < hpf.length; i++) {
+                    if (hpf[i] >= threshold) { hpfCutoff = freqs[i]; break; }
+                }
+            }
+            this.loCutKnob.min = Math.max(this.loCutOrigMin, Math.round(hpfCutoff));
+
+            // Speaker LPF: find -3dB point → new HI CUT maximum
+            let lpfCutoff = this.hiCutOrigMax;
+            if (p.speakerSel >= 0 && p.speakerSel < this.curveData.speakerLPFs.length) {
+                const lpf = this.curveData.speakerLPFs[p.speakerSel];
+                for (let i = lpf.length - 1; i >= 0; i--) {
+                    if (lpf[i] >= threshold) { lpfCutoff = freqs[i]; break; }
+                }
+            }
+            this.hiCutKnob.max = Math.min(this.hiCutOrigMax, Math.round(lpfCutoff));
+
+            // Clamp current values to new ranges
+            if (this.loCutKnob.getValue() < this.loCutKnob.min) {
+                this.loCutKnob.setValue(this.loCutKnob.min);
+            }
+            if (this.hiCutKnob.getValue() > this.hiCutKnob.max) {
+                this.hiCutKnob.setValue(this.hiCutKnob.max);
+            }
+        } else {
+            // FLT off: restore original ranges
+            this.loCutKnob.min = this.loCutOrigMin;
+            this.hiCutKnob.max = this.hiCutOrigMax;
+
+            // Only restore saved values if user didn't touch the knob
+            if (this.savedLoCut !== null && !this.loCutTouched) {
+                this.loCutKnob.setValue(this.savedLoCut);
+            }
+            if (this.savedHiCut !== null && !this.hiCutTouched) {
+                this.hiCutKnob.setValue(this.savedHiCut);
+            }
+            this.savedLoCut = null;
+            this.savedHiCut = null;
+        }
+
+        this.wasCabFilter = p.cabFilter;
+        this.loCutKnob.render();
+        this.hiCutKnob.render();
+    }
+
     cycleScale(direction) {
-        this.scaleIndex = (this.scaleIndex + direction + this.scaleOptions.length) % this.scaleOptions.length;
+        this.scaleIndex = Math.max(0, Math.min(this.scaleOptions.length - 1, this.scaleIndex + direction));
         this.scale = this.scaleOptions[this.scaleIndex];
         this.scaleBtn.textContent = '\u00B1' + this.scale;
         this.draw();
@@ -169,6 +249,12 @@ export class FreqResponse {
         };
 
         this.compositeDb = computeCompositeCurve(this.curveData, p);
+
+        // Update LO/HI CUT knob ranges when FLT is on
+        if (this.loCutKnob && this.hiCutKnob && this.curveData) {
+            this.updateCutRanges(p);
+        }
+
         if (this.open) this.draw();
     }
 
@@ -242,6 +328,7 @@ export class FreqResponse {
         ctx.fillStyle = '#bbb';
         ctx.textAlign = 'center';
         for (const f of GRID_FREQS) {
+            if (f < MIN_FREQ || f > MAX_FREQ) continue;
             const x = freqToX(f);
             ctx.beginPath();
             ctx.moveTo(x, pad.top);

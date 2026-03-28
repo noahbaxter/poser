@@ -57,8 +57,16 @@ body {
     transition: all 0.15s;
     min-width: var(--tab-w);
     text-align: center;
-    border-radius: var(--radius);
+    border-radius: 0;
     background: var(--color-bg-inactive);
+}
+
+.tab:first-child {
+    border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.tab:last-child {
+    border-radius: 0 var(--radius) var(--radius) 0;
 }
 
 .tab:hover {
@@ -632,12 +640,20 @@ body {
     text-transform: uppercase;
     color: var(--color-text-dim);
     padding: var(--group-pad-y) 0;
-    border-radius: var(--radius);
+    border-radius: 0;
     cursor: pointer;
     user-select: none;
     transition: all 0.15s;
     background: var(--color-bg-inactive);
     text-align: center;
+}
+
+.selector-group-btn:first-child {
+    border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.selector-group-btn:last-child {
+    border-radius: 0 var(--radius) var(--radius) 0;
 }
 
 .selector-group-btn:hover {

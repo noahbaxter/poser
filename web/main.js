@@ -127,10 +127,10 @@ function buildUI(config) {
     );
     onBlendStateChange(state);
 
-    buildMasterControls(config.params);
+    const masterKnobs = buildMasterControls(config.params);
 
     // EQ viewer
-    new FreqResponse(
+    const eqViewer = new FreqResponse(
         document.getElementById('eq-viewer'),
         document.getElementById('eq-toggle'),
         {
@@ -139,6 +139,7 @@ function buildUI(config) {
             spectrumSize: config.spectrumSize,
         },
     );
+    eqViewer.setCutKnobs(masterKnobs['curve_low_cut'], masterKnobs['curve_high_cut']);
 }
 
 function makeTab(label, id) {

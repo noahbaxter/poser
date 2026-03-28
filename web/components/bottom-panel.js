@@ -6,8 +6,9 @@ import { Toggle } from './controls/toggle.js';
 import { buildKnobOpts, MASTER_CONTROLS, TOGGLE_CONTROLS } from '../utils/control-config.js';
 
 export function buildMasterControls(params) {
+    const knobs = {};
     for (const mc of MASTER_CONTROLS) {
-        new Knob(document.getElementById(mc.elementId), {
+        knobs[mc.paramId] = new Knob(document.getElementById(mc.elementId), {
             param: mc.paramId,
             ...buildKnobOpts(mc.knobType, params[mc.paramId]),
         });
@@ -18,6 +19,8 @@ export function buildMasterControls(params) {
             param: tc.paramId,
         });
     }
+
+    return knobs;
 }
 
 export function buildBlendPanel(blendPanelEl, blendConfig, params, selectors, switchTab, onStateChange) {
