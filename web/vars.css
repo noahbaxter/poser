@@ -72,13 +72,8 @@
     --blend-panel-gap: 4px;
     --blend-panel-label-w: 30px;
 
-    /* Position slider */
-    --pos-track-h: 4px;
-    --pos-thumb: 16px;
-    --pos-label-gap: 6px;
-    --pos-tick-h: 10px;
-    --pos-tick-special-h: 14px;
-    --pos-label-font: 8px;
+    /* Position slider — everything scales from --pos-size */
+    --pos-size: 28px;
 
     /* Cabinet columns */
     --cabinet-gap: 2px;

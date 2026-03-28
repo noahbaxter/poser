@@ -63,8 +63,8 @@ export class FreqResponse {
         this.w = 0;
         this.h = 0;
 
-        // Auto-normalization state
-        this.trackedAvgDb = -40;
+        // Auto-normalization state (starts at noise floor so first real frame seeds instantly)
+        this.trackedAvgDb = NOISE_FLOOR;
 
         // Per-bin peak-hold buffer (filled on first spectrum frame)
         this.smoothedBins = null;
@@ -111,6 +111,9 @@ export class FreqResponse {
         for (const id of paramIds) {
             onParameterChange(id, () => this.updateCurve());
         }
+
+        // Start spectrum polling immediately so AGC is warm when panel opens
+        this.startPolling();
 
         // Resize
         const ro = new ResizeObserver(() => {
@@ -207,13 +210,10 @@ export class FreqResponse {
         this.open = isOpen;
         this.toggle.textContent = isOpen ? 'EQ \u25B4' : 'EQ \u25BE';
         if (isOpen) {
-            this.startPolling();
             requestAnimationFrame(() => {
                 this.resize();
                 this.updateCurve();
             });
-        } else {
-            this.stopPolling();
         }
     }
 
@@ -271,14 +271,6 @@ export class FreqResponse {
             } catch (e) { /* skip frame */ }
         };
         this.pollId = setInterval(poll, POLL_INTERVAL);
-    }
-
-    stopPolling() {
-        if (this.pollId) {
-            clearInterval(this.pollId);
-            this.pollId = null;
-        }
-        this.spectrumData = null;
     }
 
     // --- Canvas ---
@@ -392,15 +384,17 @@ export class FreqResponse {
             }
 
             // Peak hold: fast attack, slow decay per bin
+            // Seed from first real frame so there's no ramp from -120
             if (!this.smoothedBins || this.smoothedBins.length !== binCount) {
-                this.smoothedBins = new Float32Array(binCount).fill(-120);
-            }
-            for (let i = 1; i < binCount; i++) {
-                const incoming = smoothedDb[i];
-                if (incoming > this.smoothedBins[i]) {
-                    this.smoothedBins[i] += (incoming - this.smoothedBins[i]) * SPECTRUM_PEAK_ATTACK;
-                } else {
-                    this.smoothedBins[i] += (incoming - this.smoothedBins[i]) * SPECTRUM_PEAK_DECAY;
+                this.smoothedBins = Float32Array.from(smoothedDb);
+            } else {
+                for (let i = 1; i < binCount; i++) {
+                    const incoming = smoothedDb[i];
+                    if (incoming > this.smoothedBins[i]) {
+                        this.smoothedBins[i] += (incoming - this.smoothedBins[i]) * SPECTRUM_PEAK_ATTACK;
+                    } else {
+                        this.smoothedBins[i] += (incoming - this.smoothedBins[i]) * SPECTRUM_PEAK_DECAY;
+                    }
                 }
             }
 
@@ -428,9 +422,14 @@ export class FreqResponse {
             const currentAvg = sumWeight > 0 ? sumDb / sumWeight : -120;
 
             // Smooth the normalization average (attack/release)
+            // Seed instantly on first valid frame so there's no cold-start ramp
             if (currentAvg > NOISE_FLOOR) {
-                const alpha = currentAvg > this.trackedAvgDb ? NORM_ATTACK : NORM_RELEASE;
-                this.trackedAvgDb += (currentAvg - this.trackedAvgDb) * alpha;
+                if (this.trackedAvgDb <= NOISE_FLOOR) {
+                    this.trackedAvgDb = currentAvg;
+                } else {
+                    const alpha = currentAvg > this.trackedAvgDb ? NORM_ATTACK : NORM_RELEASE;
+                    this.trackedAvgDb += (currentAvg - this.trackedAvgDb) * alpha;
+                }
             }
 
             // Draw spectrum (only if signal present)

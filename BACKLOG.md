@@ -2,32 +2,18 @@
 
 ## Up Next
 
-- [ ] `feature` **UI redesign** — Full overhaul. Summary:
-  - 560×560 square window, CSS custom properties for all sizes
-  - 2 tabs: MIC (big ring + 3 groups) and CAB (split: selector lists + visual preview)
-  - CAB preview: color-coded cabinet wireframe + speaker cone + draggable mic position
-  - Position: interactive slider across speaker cone (0=center, 10=edge, EDGE/FRED discrete)
-  - Blend panel: 4 rows (MIC/CAB/SPK/POS) with toggle + blend knob, always visible
-  - Scale knob centered, always visible, above bottom controls
-  - Bottom-left: LO, TRIM, HI, FLT toggle, CMP toggle
-  - Defaults: MIC ON (SM57), CAB/SPK/POS OFF (Flat/center, 100% blend saved)
-  - CAB tab grayed out (not hidden) when all cab components OFF
-  - Mic groups: 3 (Drum/Vocal/Instrument), mics can be in multiple groups
-- [ ] `feature` **EQ curve viewer** — toggle extends window taller. Shows composite magnitude response (curves × blend × scale + cab filter). No gain comp in display.
 - [ ] `feature` **More cabs** — expand beyond 4 cab configurations. Source additional IR data for cab/speaker filter parameters.
-- [ ] `idea` **Speaker size parameter** — shift the LPF point based on theoretical speaker diameter (10"/12"/15"). Physical model: bigger cone = lower rolloff.
+- [ ] `feature` **Pedal/gear tone curves** — HM-2, Neve preamp, API console. Famous tonal signatures from non-mic gear. Need to figure out source data (manufacturer specs? community measurements?).
+- [ ] `design` **Variant labels + switch UI** — multi-curve mics (C414 patterns, SM7B bass rolloff, RE20 proximity, e906 switch positions) currently just cycle numbered variants with no context. Need: descriptive labels per variant explaining what it is (e.g. "Cardioid", "Fig-8", "Bass Rolloff On"), a toggle/dip-switch UI element per mic, and thoughtful default ordering (most common variant first). Related: review which mics have variants and whether the variant groupings make sense.
 
 ## Inbox
 
-- [ ] `feature` **Pedal/gear tone curves** — HM-2, Neve preamp, API console. Famous tonal signatures from non-mic gear. Need to figure out source data (manufacturer specs? community measurements?).
-- [ ] `chore` **High/low rolloff detection in curve pipeline** — algorithmically detect where each curve's natural rolloff begins during compile, rather than relying on fixed taper points. Would improve character extraction accuracy.
-- [ ] `feature` **Curve mode toggle in UI** — boost-only / cut-only / both. Parameter exists in backend, no UI control yet.
-
 - [ ] `feature` **Zero/low-latency mode** — fit the magnitude curve to a minimum-phase FIR or IIR biquad filter bank instead of FFT overlap-add. True zero-latency for tracking use. FFT mode stays as the "quality" option.
-- [ ] `idea` **Per-component-type curve scaling** — cab/speaker/position curves feel weaker than mic curves. May need normalization or scaling pass in compile.py to balance perceived intensity across component types. (2026-03-27)
-- [ ] `chore` **Manufacturer datasheet digitizer** — proper tool to extract frequency response curves from manufacturer PDFs/PNGs with varying formats, axis scales, and colors. Replace hand-traced approximations with accurate pixel-level extraction. Also replace RecordingHacks curves with higher-res manufacturer data where available. (2026-03-27)
-- [ ] `feature` **Variant stacks** — group related mic variants into a single ring slot (scroll to cycle). Keeps the ring clean while offering depth. Candidates: Audix D2/D4/D6 family, Senn e604/e904, SM57/SM58, U47/U87, C12/C414. Show a small indicator on stacked slots. MD421 vintage variants (N, U) lack published curve data — would need original measurements or synthesized approximations. (2026-03-27)
-- [ ] `design` **Mic variant/switch UI** — multi-curve mics (C414 patterns, SM7B bass rolloff, RE20 proximity) need a way to pick between configurations. Dip switch selector per mic? Also consider per-group sort ordering (D6 first in Kick, D2 first in Drum). Related to but distinct from variant stacks — this is about configurations of the *same* mic, not grouping different mics. (2026-03-28)
+- [ ] `idea` **Per-component-type curve scaling** — cab/speaker/position curves feel weaker than mic curves. May need normalization or scaling pass in compile.py to balance perceived intensity across component types.
+- [ ] `chore` **Manufacturer datasheet digitizer** — proper tool to extract frequency response curves from manufacturer PDFs/PNGs with varying formats, axis scales, and colors. Replace hand-traced approximations with accurate pixel-level extraction.
+- [ ] `chore` **High/low rolloff detection in curve pipeline** — algorithmically detect where each curve's natural rolloff begins during compile, rather than relying on fixed taper points. Would improve character extraction accuracy.
+- [ ] `feature` **Curve mode toggle in UI** — boost-only / cut-only / both. Parameter exists in backend (curve_mode), zeroes negative or positive dB values. Niche but could be useful for surgical work. Needs a button/toggle in the UI.
+- [ ] `idea` **Speaker size parameter** — shift the LPF point based on theoretical speaker diameter (10"/12"/15"). Physical model: bigger cone = lower rolloff.
 
 ## Icebox
 
@@ -65,20 +51,24 @@
 - [ ] User-importable curves / community presets
 - [ ] Expansion preset packs
 - [ ] Preset system (save/recall combinations)
-- [ ] Windows build verification
-- [ ] Installer builds (macOS pkg, Windows Inno Setup)
 - [ ] Performance profiling
-- [ ] C++ unit tests for FFT processing
 
 ## Done
 
+- [x] UI: 560×560 window, MIC/CAB tabs, blend panel (4 rows with toggles + knobs), scale knob, bottom controls (LO, TRIM, HI, FLT, CMP)
+- [x] EQ curve viewer: pop-out with live spectrum + curve overlay, auto-norm, scale toggle
+- [x] Variant stacks: 27 mic entries with variant cycling (scroll on label), badge indicator
+- [x] Mic variant/switch UI: multi-curve mics cycle variants (C414 4-way, e906 3-way, etc.)
+- [x] Position selector: 13 positions (0-10 + EDGE + FRED), drag slider, scroll wheel
+- [x] 5 mic groups (Kick/Drum/Vox/Guit/Inst), multi-group membership, group bar with scroll
+- [x] 27 mics / 46 curves from ATK + RecordingHacks digitization pipeline
+- [x] CI/CD: 3-platform build (macOS/Windows/Linux), tests, signed+notarized macOS .pkg, Windows Inno Setup .exe, Linux .zip, GitHub Releases
 - [x] Per-cab HPF + per-speaker LPF filters (measured from IR data)
 - [x] Gain comp toggle (on/off)
 - [x] Flat cab/speaker use average filter values (filter always filters when ON)
 - [x] DSP reference doc (docs/dsp.md)
-- [x] Backend-driven UI, mic groups (5 categories)
+- [x] Backend-driven UI, mic groups
 - [x] Cab+Speaker grouping in DSP (per-cab HPF × per-speaker LPF)
-- [x] 16 mic curves from ATK + RecordingHacks digitization pipeline
 - [x] Mask-based digitization with hand-editing for multi-curve mics
 - [x] Character extraction (subtract average mic rolloff, safety taper)
 - [x] Runtime RMS gain compensation
