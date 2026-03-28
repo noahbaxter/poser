@@ -15,11 +15,18 @@ public:
 private:
     void timerCallback() override;
     std::optional<juce::WebBrowserComponent::Resource> getResource(const juce::String& url);
+    std::optional<juce::WebBrowserComponent::Resource> getCurvesResource();
+    std::optional<juce::WebBrowserComponent::Resource> getSpectrumResource();
     void pushInitData();
+
+    static constexpr int kPluginWidth = 560;
+    static constexpr int kPluginHeight = 560;
+    static constexpr int kViewerHeight = 200;
 
     PoserProcessor& audioProcessor;
     bool initDataPushed = false;
     int timerTicks = 0;
+    bool eqViewerOpen = false;
 
     // WebView relay objects — one per parameter
     juce::WebSliderRelay micSelectRelay;

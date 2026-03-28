@@ -103,6 +103,7 @@ juce_add_binary_data(PoserData
         web/components/controls/selector.js
         web/components/controls/toggle.js
         web/components/controls/position-slider.js
+        web/components/freq-response.js
         web/lib/scroll.js
         web/lib/juce-bridge.js
         web/lib/juce/index.js

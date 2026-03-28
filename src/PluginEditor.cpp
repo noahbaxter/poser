@@ -51,6 +51,13 @@ PoserEditor::PoserEditor(PoserProcessor& p)
               .withOptionsFrom(curveModeRelay)
               .withOptionsFrom(cabFilterRelay)
               .withOptionsFrom(gainCompRelay)
+              .withNativeFunction("toggleEqViewer",
+                  [this](const juce::Array<juce::var>& args, juce::WebBrowserComponent::NativeFunctionCompletion complete) {
+                      juce::ignoreUnused(args);
+                      eqViewerOpen = !eqViewerOpen;
+                      setSize(kPluginWidth, eqViewerOpen ? kPluginHeight + kViewerHeight : kPluginHeight);
+                      complete(juce::var(eqViewerOpen));
+                  })
       },
       micSelectAttach{*audioProcessor.getAPVTS().getParameter("mic_select"), micSelectRelay, nullptr},
       cabSelectAttach{*audioProcessor.getAPVTS().getParameter("cab_select"), cabSelectRelay, nullptr},
@@ -73,7 +80,7 @@ PoserEditor::PoserEditor(PoserProcessor& p)
     webView.setOpaque(false);
 
     setResizable(false, false);
-    setSize(560, 560);
+    setSize(kPluginWidth, kPluginHeight);
 
     juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<PoserEditor>(this)]() {
         if (safeThis != nullptr)
@@ -211,6 +218,11 @@ void PoserEditor::pushInitData()
     }
     root->setProperty("params", paramsMeta);
 
+    // Spectrum info for the EQ viewer
+    root->setProperty("sampleRate", audioProcessor.getSampleRate());
+    root->setProperty("fftSize", audioProcessor.getFFTSize());
+    root->setProperty("spectrumSize", audioProcessor.getSpectrumSize());
+
     juce::String json = juce::JSON::toString(juce::var(root));
     juce::String js = "if (window.__poser_init__ && !window.__poser_initialized__) window.__poser_init__(" + json + ");";
     webView.evaluateJavascript(js, nullptr);
@@ -237,6 +249,12 @@ std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getResource(cons
     if (urlToRetrieve.isEmpty())
         urlToRetrieve = "index.html";
 
+    // Dynamic binary endpoints
+    if (urlToRetrieve == "curves.bin")
+        return getCurvesResource();
+    if (urlToRetrieve == "spectrum.bin")
+        return getSpectrumResource();
+
     struct ResourceEntry { const char* path; const void* data; int size; const char* mime; };
     static const ResourceEntry resources[] = {
         { "index.html",                     BinaryData::index_html,             BinaryData::index_htmlSize,              "text/html" },
@@ -249,6 +267,7 @@ std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getResource(cons
         { "components/controls/selector.js",BinaryData::selector_js,            BinaryData::selector_jsSize,             "text/javascript" },
         { "components/controls/toggle.js",  BinaryData::toggle_js,              BinaryData::toggle_jsSize,               "text/javascript" },
         { "components/controls/position-slider.js", BinaryData::positionslider_js, BinaryData::positionslider_jsSize,  "text/javascript" },
+        { "components/freq-response.js",  BinaryData::freqresponse_js,        BinaryData::freqresponse_jsSize,         "text/javascript" },
         { "lib/scroll.js",                  BinaryData::scroll_js,              BinaryData::scroll_jsSize,               "text/javascript" },
         { "lib/juce-bridge.js",             BinaryData::jucebridge_js,          BinaryData::jucebridge_jsSize,           "text/javascript" },
         { "lib/juce/index.js",              BinaryData::index_js,               BinaryData::index_jsSize,                "text/javascript" },
@@ -266,4 +285,67 @@ std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getResource(cons
     }
 
     return std::nullopt;
+}
+
+// --- Binary endpoints ---
+
+std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getCurvesResource()
+{
+    constexpr int bins = ::CurveData::kNumBins;
+    constexpr int nMics = ::CurveData::kNumMics;
+    constexpr int nCabs = ::CurveData::kNumCabs;
+    constexpr int nSpk  = ::CurveData::kNumSpeakers;
+    constexpr int nPos  = ::CurveData::kNumPositions;
+    constexpr int nHPF  = ::CurveData::kNumCabHPFs;
+    constexpr int nLPF  = ::CurveData::kNumSpeakerLPFs;
+
+    constexpr size_t headerSize  = 7 * sizeof(uint32_t);
+    constexpr size_t floatCount  = bins + (nMics + nCabs + nSpk + nPos + nHPF + nLPF) * bins;
+    constexpr size_t totalSize   = headerSize + floatCount * sizeof(float);
+
+    std::vector<std::byte> bytes(totalSize);
+    auto* ptr = bytes.data();
+
+    auto writeU32 = [&](uint32_t v) { std::memcpy(ptr, &v, sizeof(v)); ptr += sizeof(v); };
+    writeU32(static_cast<uint32_t>(bins));
+    writeU32(static_cast<uint32_t>(nMics));
+    writeU32(static_cast<uint32_t>(nCabs));
+    writeU32(static_cast<uint32_t>(nSpk));
+    writeU32(static_cast<uint32_t>(nPos));
+    writeU32(static_cast<uint32_t>(nHPF));
+    writeU32(static_cast<uint32_t>(nLPF));
+
+    auto writeFloats = [&](const float* data, int count) {
+        auto sz = static_cast<size_t>(count) * sizeof(float);
+        std::memcpy(ptr, data, sz);
+        ptr += sz;
+    };
+
+    writeFloats(::CurveData::kFrequencies.data(), bins);
+
+    auto writeCurves = [&](const ::CurveData::Curve* curves, int count) {
+        for (int i = 0; i < count; ++i)
+            writeFloats(curves[i].data, bins);
+    };
+
+    writeCurves(::CurveData::kMics, nMics);
+    writeCurves(::CurveData::kCabs, nCabs);
+    writeCurves(::CurveData::kSpeakers, nSpk);
+    writeCurves(::CurveData::kPositions, nPos);
+    writeCurves(::CurveData::kCabHPFs, nHPF);
+    writeCurves(::CurveData::kSpeakerLPFs, nLPF);
+
+    return juce::WebBrowserComponent::Resource { std::move(bytes), juce::String("application/octet-stream") };
+}
+
+std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getSpectrumResource()
+{
+    const float* spectrum = audioProcessor.getSpectrumMagnitudes();
+    int count = audioProcessor.getSpectrumSize();
+    auto totalBytes = static_cast<size_t>(count) * sizeof(float);
+
+    std::vector<std::byte> bytes(totalBytes);
+    std::memcpy(bytes.data(), spectrum, totalBytes);
+
+    return juce::WebBrowserComponent::Resource { std::move(bytes), juce::String("application/octet-stream") };
 }

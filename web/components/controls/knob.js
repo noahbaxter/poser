@@ -79,7 +79,7 @@ export class Knob {
             this.dragging = true;
             startY = e.clientY;
             startValue = this.value;
-            parameterDragStarted(this.param);
+            if (this.param) parameterDragStarted(this.param);
             this._showTooltip();
             e.preventDefault();
             e.stopPropagation();
@@ -95,7 +95,7 @@ export class Knob {
 
         window.addEventListener('mouseup', () => {
             if (!this.dragging) return;
-            parameterDragEnded(this.param);
+            if (this.param) parameterDragEnded(this.param);
             this.dragging = false;
             this._scheduleHideTooltip();
         });
@@ -127,12 +127,14 @@ export class Knob {
 
     // Read initial value from C++ backend (synchronous — available at module load)
     _readFromBackend() {
+        if (!this.param) return;
         const norm = getParameterNormalized(this.param);
         this.value = this._clamp(this.fromNorm(norm));
     }
 
     // Listen for C++ changes (DAW automation, preset recall)
     _listenToBackend() {
+        if (!this.param) return;
         onParameterChange(this.param, () => {
             if (this.dragging) return;  // Don't fight the user
             const norm = getParameterNormalized(this.param);
@@ -146,7 +148,8 @@ export class Knob {
     _setFromUser(v) {
         this.value = this._clamp(v);
         this.render();
-        setParameterNormalized(this.param, this.toNorm(this.value));
+        if (this.param) setParameterNormalized(this.param, this.toNorm(this.value));
+        if (this.onChange) this.onChange(this.value);
     }
 
     // Programmatic: update visual only (no C++ send, no callback)

@@ -1,6 +1,7 @@
 import { Selector } from './components/controls/selector.js';
 import { PositionSlider } from './components/controls/position-slider.js';
 import { buildBlendPanel, buildMasterControls } from './components/bottom-panel.js';
+import { FreqResponse } from './components/freq-response.js';
 
 // ---- Init: called by C++ with component data ----
 
@@ -127,6 +128,17 @@ function buildUI(config) {
     onBlendStateChange(state);
 
     buildMasterControls(config.params);
+
+    // EQ viewer
+    new FreqResponse(
+        document.getElementById('eq-viewer'),
+        document.getElementById('eq-toggle'),
+        {
+            sampleRate: config.sampleRate,
+            fftSize: config.fftSize,
+            spectrumSize: config.spectrumSize,
+        },
+    );
 }
 
 function makeTab(label, id) {

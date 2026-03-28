@@ -17,12 +17,18 @@ html, body {
     -webkit-user-select: none;
 }
 
+body {
+    display: flex;
+    flex-direction: column;
+}
+
 .plugin {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 0 0 560px;
     padding: var(--plugin-pad-y) var(--plugin-pad-x);
     gap: 0;
+    position: relative;
 }
 
 /* --- Nav bar (tabs + group buttons) --- */
@@ -691,7 +697,7 @@ html, body {
 /* --- Version label --- */
 
 .version-label {
-    position: fixed;
+    position: absolute;
     bottom: 4px;
     left: 6px;
     font-size: var(--version-font);
@@ -721,4 +727,58 @@ html, body {
 
 .knob-tooltip.visible {
     opacity: 1;
+}
+
+/* --- EQ Viewer --- */
+
+.eq-viewer {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border-top: 1px solid var(--color-border);
+    position: relative;
+}
+
+.eq-viewer canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.eq-toggle {
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    font-size: var(--version-font);
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: var(--color-text-off);
+    cursor: pointer;
+    user-select: none;
+    z-index: 100;
+}
+
+.eq-toggle:hover {
+    color: #000;
+}
+
+.eq-scale-btn {
+    position: absolute;
+    top: 5px;
+    left: 4px;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    user-select: none;
+    z-index: 10;
+    padding: 1px 4px;
+    border-radius: 2px;
+    border: 1px solid var(--color-border);
+}
+
+.eq-scale-btn:hover {
+    color: #000;
+    border-color: #888;
 }

@@ -172,6 +172,8 @@ public:
 
     int getLatencySamples() const { return kFFTSize; }
     const int* getBinMapping() const { return binMapping; }
+    const float* getSpectrumMagnitudes() const { return spectrumMagnitudes; }
+    const float* getMagnitudeResponse() const { return magnitudeResponse; }
 
 private:
     void processFrame(int channel)
@@ -186,6 +188,17 @@ private:
         {
             fftRe[i] *= magnitudeResponse[i];
             fftIm[i] *= magnitudeResponse[i];
+        }
+
+        // Capture post-EQ spectrum from channel 0 (smoothed for UI display)
+        if (channel == 0)
+        {
+            for (int i = 0; i < kComplexSize; ++i)
+            {
+                float mag = std::sqrt(fftRe[i] * fftRe[i] + fftIm[i] * fftIm[i]);
+                spectrumMagnitudes[i] = kSpectrumSmoothing * spectrumMagnitudes[i]
+                                      + (1.0f - kSpectrumSmoothing) * mag;
+            }
         }
 
         fft.ifft(fftOut, fftRe, fftIm);
@@ -209,4 +222,8 @@ private:
     float fftOut[kFFTSize] = {};
     float magnitudeResponse[kComplexSize] = {};
     int binMapping[kComplexSize] = {};
+
+    // Smoothed pre-EQ spectrum for UI display (written by audio thread, read by UI)
+    static constexpr float kSpectrumSmoothing = 0.9f;
+    float spectrumMagnitudes[kComplexSize] = {};
 };

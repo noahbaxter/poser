@@ -38,6 +38,10 @@ public:
 #endif
 
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
+    const float* getSpectrumMagnitudes() const { return eq.getSpectrumMagnitudes(); }
+    int getSpectrumSize() const { return EqProcessor::kComplexSize; }
+    int getFFTSize() const { return EqProcessor::kFFTSize; }
+    double getSampleRate() const { return currentSampleRate; }
 
 private:
     juce::AudioProcessorValueTreeState apvts;
