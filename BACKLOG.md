@@ -25,6 +25,9 @@
 
 - [ ] `feature` **Zero/low-latency mode** — fit the magnitude curve to a minimum-phase FIR or IIR biquad filter bank instead of FFT overlap-add. True zero-latency for tracking use. FFT mode stays as the "quality" option.
 - [ ] `idea` **Per-component-type curve scaling** — cab/speaker/position curves feel weaker than mic curves. May need normalization or scaling pass in compile.py to balance perceived intensity across component types. (2026-03-27)
+- [ ] `chore` **Manufacturer datasheet digitizer** — proper tool to extract frequency response curves from manufacturer PDFs/PNGs with varying formats, axis scales, and colors. Replace hand-traced approximations with accurate pixel-level extraction. Also replace RecordingHacks curves with higher-res manufacturer data where available. (2026-03-27)
+- [ ] `feature` **Variant stacks** — group related mic variants into a single ring slot (scroll to cycle). Keeps the ring clean while offering depth. Candidates: Audix D2/D4/D6 family, Senn e604/e904, SM57/SM58, U47/U87, C12/C414. Show a small indicator on stacked slots. MD421 vintage variants (N, U) lack published curve data — would need original measurements or synthesized approximations. (2026-03-27)
+- [ ] `design` **Mic variant/switch UI** — multi-curve mics (C414 patterns, SM7B bass rolloff, RE20 proximity) need a way to pick between configurations. Dip switch selector per mic? Also consider per-group sort ordering (D6 first in Kick, D2 first in Drum). Related to but distinct from variant stacks — this is about configurations of the *same* mic, not grouping different mics. (2026-03-28)
 
 ## Icebox
 

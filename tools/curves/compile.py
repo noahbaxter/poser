@@ -49,6 +49,19 @@ def load_atk_csv(path):
     return freqs, dbs
 
 
+def count_digitized_curves(slug):
+    """Returns how many curves exist in the digitized JSON."""
+    path = DIGITIZED_DIR / f"{slug}.json"
+    if not path.exists():
+        return 0
+    with open(path) as f:
+        d = json.load(f)
+    try:
+        return len(d["curves"]["single"]["curves"])
+    except (KeyError, TypeError):
+        return 0
+
+
 def load_digitized(slug, curve_index=0):
     """Returns (freqs, dbs) or (None, None)."""
     path = DIGITIZED_DIR / f"{slug}.json"
@@ -128,7 +141,12 @@ def apply_safety_taper(curve, target_freqs):
 # --- Build extracted_components.json ---
 
 def build_components():
-    """Merge ATK + digitized curves into extracted_components.json."""
+    """Merge ATK + digitized curves into extracted_components.json.
+
+    For mics with multiple digitized curves (proximity variants, switch positions),
+    all variants are included. The average mic shape is computed from primary curves
+    only (ATK or digitized[0]), then applied to all variants.
+    """
     with open(COMPONENTS_JSON) as f:
         data = json.load(f)
 
@@ -136,13 +154,18 @@ def build_components():
     print(f"Target grid: {len(target_freqs)} points, "
           f"{target_freqs[0]:.1f}-{target_freqs[-1]:.1f} Hz")
 
-    # First pass: load and interpolate all mics onto the grid
-    raw_mics = {}
+    # First pass: load primary curve for each mic (for average computation)
+    primary_mics = {}  # display_name → {magnitude_db, source}
+    # Also collect all variant raw curves
+    variant_mics = {}  # display_name → [{magnitude_db, source, label}, ...]
 
     for slug in sorted(MICS):
         info = MICS[slug]
         display_name = info["name"]
         atk_csv = info.get("atk_csv")
+        n_digitized = count_digitized_curves(slug)
+
+        variants = []
 
         if atk_csv:
             csv_path = ATK_DIR / atk_csv
@@ -150,41 +173,68 @@ def build_components():
                 print(f"  SKIP {display_name}: {csv_path} not found")
                 continue
             freqs, dbs = load_atk_csv(csv_path)
-            source = "audio_test_kitchen"
-            print(f"  {display_name}: {len(freqs)} pts from ATK")
+            dbs = normalize_at_1k(freqs, dbs)
+            interp_dbs = interpolate_to_grid(freqs, dbs, target_freqs)
+            interp_dbs -= np.mean(interp_dbs)
+            primary_mics[display_name] = {"magnitude_db": interp_dbs.tolist(), "source": "audio_test_kitchen"}
+            variants.append({"magnitude_db": interp_dbs.tolist(), "source": "audio_test_kitchen", "label": "1"})
+            print(f"  {display_name}: ATK primary", end="")
+
+            # Add digitized variants beyond index 0 (ATK replaces index 0)
+            for vi in range(1, n_digitized):
+                vfreqs, vdbs = load_digitized(slug, vi)
+                if vfreqs is not None:
+                    vdbs = normalize_at_1k(vfreqs, vdbs)
+                    vinterp = interpolate_to_grid(vfreqs, vdbs, target_freqs)
+                    vinterp -= np.mean(vinterp)
+                    variants.append({"magnitude_db": vinterp.tolist(), "source": "recordinghacks", "label": str(vi + 1)})
+            if len(variants) > 1:
+                print(f" + {len(variants)-1} digitized variants")
+            else:
+                print()
         else:
-            freqs, dbs = load_digitized(slug)
-            if freqs is None:
-                print(f"  SKIP {display_name}: {slug}.json not found")
+            # All curves from digitized
+            for vi in range(max(1, n_digitized)):
+                freqs, dbs = load_digitized(slug, vi)
+                if freqs is None:
+                    if vi == 0:
+                        print(f"  SKIP {display_name}: {slug}.json not found")
+                    break
+                dbs = normalize_at_1k(freqs, dbs)
+                interp_dbs = interpolate_to_grid(freqs, dbs, target_freqs)
+                interp_dbs -= np.mean(interp_dbs)
+                variants.append({"magnitude_db": interp_dbs.tolist(), "source": "recordinghacks", "label": str(vi + 1)})
+                if vi == 0:
+                    primary_mics[display_name] = {"magnitude_db": interp_dbs.tolist(), "source": "recordinghacks"}
+
+            if variants:
+                print(f"  {display_name}: {len(variants)} curve(s) from RH ({slug})")
+            else:
                 continue
-            source = "recordinghacks"
-            print(f"  {display_name}: {len(freqs)} pts from RH ({slug})")
 
-        dbs = normalize_at_1k(freqs, dbs)
-        interp_dbs = interpolate_to_grid(freqs, dbs, target_freqs)
-        interp_dbs -= np.mean(interp_dbs)
+        variant_mics[display_name] = variants
 
-        raw_mics[display_name] = {
-            "magnitude_db": interp_dbs.tolist(),
-            "source": source,
-        }
-
-    # Second pass: extract character by subtracting average mic shape,
-    # then apply safety taper at the extremes
-    character_curves, avg_curve = extract_character(raw_mics, target_freqs)
+    # Second pass: extract character using primary curves only,
+    # then apply the same transformation to all variants
+    character_curves, avg_curve = extract_character(primary_mics, target_freqs)
     print(f"\nAverage mic rolloff: {avg_curve[0]:+.1f}dB at {target_freqs[0]:.0f}Hz, "
           f"{avg_curve[-1]:+.1f}dB at {target_freqs[-1]:.0f}Hz")
 
     new_mics = {}
-    for display_name, character in character_curves.items():
-        tapered = apply_safety_taper(character, target_freqs)
-
-        new_mics[display_name] = {
-            "magnitude_db": tapered.tolist(),
-            "source": raw_mics[display_name]["source"],
-            "peak_to_peak_db": float(np.ptp(tapered)),
-            "rms_db": float(np.sqrt(np.mean(tapered ** 2))),
-        }
+    for display_name, variants in variant_mics.items():
+        processed_variants = []
+        for v in variants:
+            raw = np.array(v["magnitude_db"])
+            character = raw - avg_curve
+            tapered = apply_safety_taper(character, target_freqs)
+            processed_variants.append({
+                "magnitude_db": tapered.tolist(),
+                "source": v["source"],
+                "label": v["label"],
+                "peak_to_peak_db": float(np.ptp(tapered)),
+                "rms_db": float(np.sqrt(np.mean(tapered ** 2))),
+            })
+        new_mics[display_name] = {"variants": processed_variants}
 
     old_mic_count = len(data["components"].get("mic", {}))
     data["components"]["mic"] = new_mics
@@ -192,9 +242,8 @@ def build_components():
     with open(COMPONENTS_JSON, "w") as f:
         json.dump(data, f, indent=2)
 
-    n_atk = sum(1 for m in new_mics.values() if m["source"] == "audio_test_kitchen")
-    n_rh = len(new_mics) - n_atk
-    print(f"Replaced {old_mic_count} mics with {len(new_mics)} ({n_atk} ATK, {n_rh} RH)")
+    total_variants = sum(len(m["variants"]) for m in new_mics.values())
+    print(f"Replaced {old_mic_count} mics with {len(new_mics)} ({total_variants} total curves)")
     print(f"Wrote {COMPONENTS_JSON}")
 
 
@@ -354,7 +403,7 @@ def generate_header():
     out.append("")
     print(f"SpeakerLPFs: {len(speaker_lpf_entries)}")
 
-    for comp_type in ("cab", "speaker", "mic", "position"):
+    for comp_type in ("cab", "speaker", "position"):
         if comp_type not in components:
             continue
 
@@ -387,19 +436,74 @@ def generate_header():
         out.append("")
         print(f"{plural}: {len(entries)}")
 
-    # Mic groups — map group names to indices into kMics[] (alphabetically sorted)
+    # --- Mics with variant support ---
+    if "mic" in components:
+        mic_items = components["mic"]
+        mic_sorted = sorted(mic_items.keys())
+
+        # Emit all variant curve data arrays
+        for name in mic_sorted:
+            mic = mic_items[name]
+            variants = mic.get("variants", [mic])  # backward compat
+            for vi, v in enumerate(variants):
+                suffix = f"_v{vi+1}" if len(variants) > 1 else ""
+                ident = sanitize_ident(name)
+                var_name = f"kMic_{ident}{suffix}"
+                mag = v["magnitude_db"]
+                raw_peak = max(abs(val) for val in mag)
+                label = f"{name}" if len(variants) == 1 else f"{name} #{vi+1}"
+                print(f"  {label:16s} peak {raw_peak:5.2f}dB")
+                out.append(f"static constexpr float {var_name}[] = {{")
+                out.append(format_float_array(mag))
+                out.append("};")
+                out.append("")
+
+        # Flat kMics[] array — all variants consecutive per mic
+        flat_entries = []
+        for name in mic_sorted:
+            mic = mic_items[name]
+            variants = mic.get("variants", [mic])
+            for vi, v in enumerate(variants):
+                suffix = f"_v{vi+1}" if len(variants) > 1 else ""
+                ident = sanitize_ident(name)
+                var_name = f"kMic_{ident}{suffix}"
+                flat_entries.append(f'    {{"{name}", {var_name}}}')
+
+        out.append("static constexpr Curve kMics[] = {")
+        out.append(",\n".join(flat_entries))
+        out.append("};")
+        out.append(f"static constexpr int kNumMics = {len(flat_entries)};")
+        out.append("")
+        print(f"Mics: {len(flat_entries)} curves across {len(mic_sorted)} mics")
+
+        # MicEntry table — groups variants per mic
+        out.append("struct MicEntry {")
+        out.append("    const char* name;")
+        out.append("    int firstIndex;")
+        out.append("    int numVariants;")
+        out.append("};")
+        out.append("")
+
+        entry_list = []
+        flat_idx = 0
+        mic_entry_indices = {}  # name → entry index (for group lookups)
+        for ei, name in enumerate(mic_sorted):
+            mic = mic_items[name]
+            variants = mic.get("variants", [mic])
+            nv = len(variants)
+            entry_list.append(f'    {{"{name}", {flat_idx}, {nv}}}')
+            mic_entry_indices[name] = ei
+            flat_idx += nv
+
+        out.append("static constexpr MicEntry kMicEntries[] = {")
+        out.append(",\n".join(entry_list))
+        out.append("};")
+        out.append(f"static constexpr int kNumMicEntries = {len(entry_list)};")
+        out.append("")
+
+    # Mic groups — map group names to MicEntry indices (not flat curve indices)
     # Tagged mics (e.g. "kick") are sorted to be adjacent within their group.
     if "mic" in components:
-        mic_sorted = sorted(components["mic"].keys())
-
-        # Collect tags per mic index
-        mic_tags = {}  # global_index → tag string
-        for slug, info in MICS.items():
-            tag = info.get("tag")
-            if tag:
-                display = info["name"]
-                if display in mic_sorted:
-                    mic_tags[mic_sorted.index(display)] = tag
 
         out.append("struct MicGroupTag {")
         out.append("    const char* name;")
@@ -418,14 +522,14 @@ def generate_header():
 
         group_entries = []
         for group_name in MIC_GROUPS:
-            # Find which mic indices belong to this group (mics can be in multiple groups)
-            tagged = []    # (global_index, tag)
-            untagged = []  # global_index
+            # Find which MicEntry indices belong to this group
+            tagged = []    # (entry_index, tag)
+            untagged = []  # entry_index
             for slug, info in MICS.items():
                 if group_name in info.get("groups", []):
                     display = info["name"]
-                    if display in mic_sorted:
-                        idx = mic_sorted.index(display)
+                    if display in mic_entry_indices:
+                        idx = mic_entry_indices[display]
                         tag = info.get("tag")
                         if tag:
                             tagged.append((idx, tag))

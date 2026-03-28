@@ -793,10 +793,14 @@ def cmd_prepare(args):
         rh_id = info["rh_id"]
         source_path = source_dir / f"{slug}.png"
 
-        # Download if not cached
-        if not source_path.exists():
+        # Download if not cached (or previous download was empty)
+        if not source_path.exists() or source_path.stat().st_size == 0:
             print(f"\n--- {name} ({slug}) ---")
             download_single_graph(rh_id, source_path)
+            if source_path.stat().st_size == 0:
+                print(f"  WARNING: download returned 0 bytes, skipping")
+                summary.append((slug, name, "download_failed", []))
+                continue
         else:
             print(f"\n--- {name} ({slug}) --- [cached]")
 
@@ -861,7 +865,7 @@ def cmd_build(args):
         source_path = source_dir / f"{slug}.png"
         print(f"\n--- {name} ({slug}) ---")
 
-        if not source_path.exists():
+        if not source_path.exists() or source_path.stat().st_size == 0:
             print(f"  SKIP: no source image (run 'prepare' first)")
             continue
 
