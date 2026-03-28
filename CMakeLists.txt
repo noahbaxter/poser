@@ -95,10 +95,12 @@ juce_add_binary_data(PoserData
     SOURCES
         web/index.html
         web/main.js
+        web/vars.css
         web/main.css
         web/components/controls/knob.js
         web/components/controls/selector.js
         web/components/controls/toggle.js
+        web/components/controls/position-slider.js
         web/lib/juce-bridge.js
         web/lib/juce/index.js
         web/lib/juce/check_native_interop.js

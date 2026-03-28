@@ -45,24 +45,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"position_select", 1}, "Position Select", 0, ::CurveData::kNumPositions - 1, 0));
 
-    // Component blends
+    // Component blends (-100% to +100%, negative inverts the curve)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mic_blend", 1}, "Mic Blend",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"cab_blend", 1}, "Cab Blend",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"speaker_blend", 1}, "Speaker Blend",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"position_blend", 1}, "Position Blend",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
 
     // Master controls
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"master_push", 1}, "Scale",
-        juce::NormalisableRange<float>(-5.0f, 5.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 5.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"output_trim", 1}, "Output Trim",
         juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f,

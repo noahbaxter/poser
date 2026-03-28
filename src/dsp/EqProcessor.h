@@ -77,13 +77,13 @@ public:
             int cb = binMapping[i];
             float totalDb = 0.0f;
 
-            if (p.micBlend > 0.0f && p.micSel >= 0 && p.micSel < ::CurveData::kNumMics)
+            if (p.micBlend != 0.0f && p.micSel >= 0 && p.micSel < ::CurveData::kNumMics)
                 totalDb += ::CurveData::kMics[p.micSel].data[cb] * p.micBlend;
-            if (p.cabBlend > 0.0f && p.cabSel >= 0 && p.cabSel < ::CurveData::kNumCabs)
+            if (p.cabBlend != 0.0f && p.cabSel >= 0 && p.cabSel < ::CurveData::kNumCabs)
                 totalDb += ::CurveData::kCabs[p.cabSel].data[cb] * p.cabBlend;
-            if (p.speakerBlend > 0.0f && p.speakerSel >= 0 && p.speakerSel < ::CurveData::kNumSpeakers)
+            if (p.speakerBlend != 0.0f && p.speakerSel >= 0 && p.speakerSel < ::CurveData::kNumSpeakers)
                 totalDb += ::CurveData::kSpeakers[p.speakerSel].data[cb] * p.speakerBlend;
-            if (p.positionBlend > 0.0f && p.positionSel >= 0 && p.positionSel < ::CurveData::kNumPositions)
+            if (p.positionBlend != 0.0f && p.positionSel >= 0 && p.positionSel < ::CurveData::kNumPositions)
                 totalDb += ::CurveData::kPositions[p.positionSel].data[cb] * p.positionBlend;
 
             totalDb *= p.masterPush;

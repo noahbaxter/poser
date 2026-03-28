@@ -211,10 +211,12 @@ std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getResource(cons
     static const ResourceEntry resources[] = {
         { "index.html",                     BinaryData::index_html,             BinaryData::index_htmlSize,              "text/html" },
         { "main.js",                        BinaryData::main_js,                BinaryData::main_jsSize,                 "text/javascript" },
+        { "vars.css",                       BinaryData::vars_css,               BinaryData::vars_cssSize,                "text/css" },
         { "main.css",                       BinaryData::main_css,               BinaryData::main_cssSize,                "text/css" },
         { "components/controls/knob.js",    BinaryData::knob_js,                BinaryData::knob_jsSize,                 "text/javascript" },
         { "components/controls/selector.js",BinaryData::selector_js,            BinaryData::selector_jsSize,             "text/javascript" },
         { "components/controls/toggle.js",  BinaryData::toggle_js,              BinaryData::toggle_jsSize,               "text/javascript" },
+        { "components/controls/position-slider.js", BinaryData::positionslider_js, BinaryData::positionslider_jsSize,  "text/javascript" },
         { "lib/juce-bridge.js",             BinaryData::jucebridge_js,          BinaryData::jucebridge_jsSize,           "text/javascript" },
         { "lib/juce/index.js",              BinaryData::index_js,               BinaryData::index_jsSize,                "text/javascript" },
         { "lib/juce/check_native_interop.js", BinaryData::check_native_interop_js, BinaryData::check_native_interop_jsSize, "text/javascript" },

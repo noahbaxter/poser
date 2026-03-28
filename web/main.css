@@ -1,94 +1,4 @@
-:root {
-    /* Plugin shell */
-    --plugin-pad-x: 16px;
-    --plugin-pad-y: 12px;
-
-    /* Ring selector */
-    --ring-size: 300px;
-    --ring-radius: 92px;
-    --ring-knob: 120px;
-    --ring-indicator: 16px;
-    --ring-indicator-offset: 8px;
-    --ring-font: 20px;
-    --ring-font-active: 22px;
-
-    /* Small selector (cabinet sub-selectors) */
-    --ring-small-max: 230px;
-    --ring-small-knob: 80px;
-    --ring-small-indicator: 10px;
-    --ring-small-indicator-offset: 5px;
-    --ring-small-font: 14px;
-    --ring-small-font-active: 16px;
-
-    /* Compact selector (vertical list) */
-    --compact-font: 18px;
-    --compact-font-active: 20px;
-
-    /* Blend knobs */
-    --blend-slot-w: 80px;
-    --blend-knob: 28px;
-    --blend-indicator: 4px;
-    --blend-indicator-offset: 3px;
-
-    /* Master knobs */
-    --master-knob: 48px;
-    --master-knob-gap: 2px;
-    --master-indicator: 7px;
-    --master-indicator-offset: 5px;
-    --master-knob-push: 64px;
-    --master-indicator-push: 9px;
-    --master-indicator-push-offset: 7px;
-
-    /* Tabs */
-    --tab-font: 14px;
-    --tab-w: 100px;
-    --tab-pad-y: 7px;
-
-    /* Group buttons */
-    --group-font: 12px;
-
-    /* Toggle buttons */
-    --toggle-size: 36px;
-    --toggle-font: 8px;
-
-    /* Labels */
-    --label-font: 10px;
-
-    /* Bottom area */
-    --bottom-gap: 16px;
-    --bottom-pad: 8px;
-    --separator-gap: 12px;
-
-    /* Right panel */
-    --panel-gap: 6px;
-
-    /* Blend panel */
-    --blend-toggle: 14px;
-    --blend-panel-gap: 4px;
-    --blend-panel-label-w: 30px;
-
-    /* Toggle strip */
-    --toggle-strip-h: 3px;
-    --toggle-strip-offset: 7px;
-
-    /* Shared */
-    --radius: 4px;
-    --letter-spacing: 2px;
-    --knob-hit-expand: 8px;
-
-    /* Group bar */
-    --group-pad-y: 4px;
-
-    /* Cabinet columns */
-    --cabinet-gap: 4px;
-    --cabinet-header-gap: 8px;
-
-    /* Tooltip */
-    --tooltip-font: 12px;
-
-    /* Version */
-    --version-font: 9px;
-}
+@import url('vars.css');
 
 * {
     margin: 0;
@@ -134,7 +44,7 @@ html, body {
     font-size: var(--tab-font);
     font-weight: 900;
     letter-spacing: 3px;
-    color: #888;
+    color: var(--color-text-dim);
     text-transform: uppercase;
     cursor: pointer;
     padding: var(--tab-pad-y) 0;
@@ -142,12 +52,12 @@ html, body {
     min-width: var(--tab-w);
     text-align: center;
     border-radius: var(--radius);
-    background: #ddd;
+    background: var(--color-bg-inactive);
 }
 
 .tab:hover {
-    background: #ccc;
-    color: #555;
+    background: var(--color-bg-hover);
+    color: var(--color-text-hover);
 }
 
 .tab.active {
@@ -256,7 +166,7 @@ html, body {
     position: absolute;
     font-size: var(--ring-font);
     font-weight: 800;
-    color: #ccc;
+    color: var(--color-option-inactive);
     white-space: nowrap;
     cursor: pointer;
     transition: color 0.12s, font-weight 0.12s;
@@ -270,7 +180,7 @@ html, body {
 }
 
 .selector-option:hover {
-    color: #888;
+    color: var(--color-text-dim);
 }
 
 .selector-knob-center {
@@ -305,7 +215,7 @@ html, body {
 /* --- Disabled selector --- */
 
 .selector-wrap.disabled {
-    opacity: 0.25;
+    opacity: var(--color-disabled);
     pointer-events: none;
 }
 
@@ -341,12 +251,20 @@ html, body {
     font-size: var(--ring-small-font-active);
 }
 
-/* --- Cabinet panel (dual selector) --- */
+/* --- Cabinet layout (selectors + position slider) --- */
+
+.cabinet-layout {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+}
 
 .cabinet-panel {
     display: flex;
     width: 100%;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
 }
 
 .cabinet-col {
@@ -375,8 +293,112 @@ html, body {
     font-size: var(--label-font);
     font-weight: 900;
     letter-spacing: var(--letter-spacing);
-    color: #bbb;
+    color: var(--color-text-muted);
     text-transform: uppercase;
+}
+
+/* --- Position slider --- */
+
+.pos-slider {
+    width: 100%;
+    padding: var(--panel-gap) var(--separator-gap);
+    padding-right: calc(var(--master-knob-push) + var(--separator-gap) * 4);
+}
+
+.pos-slider.disabled {
+    opacity: var(--color-disabled);
+    pointer-events: none;
+}
+
+.pos-track {
+    position: relative;
+    /* Thumb is the tallest element; labels sit below */
+    height: calc(var(--pos-thumb) + var(--pos-label-gap) + var(--pos-label-font));
+}
+
+/* Rail line — vertically centered on thumb */
+.pos-track::before {
+    content: '';
+    position: absolute;
+    top: calc(var(--pos-thumb) / 2 - var(--pos-track-h) / 2);
+    left: 0;
+    right: 0;
+    height: var(--pos-track-h);
+    background: var(--color-bg-inactive);
+    border-radius: 1px;
+}
+
+/* Notches — ticks vertically centered on thumb, labels below */
+.pos-notch {
+    position: absolute;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--pos-label-gap);
+    cursor: pointer;
+    z-index: 1;
+    transform: translateX(-50%);
+    padding-top: calc((var(--pos-thumb) - var(--pos-tick-h)) / 2);
+}
+
+.pos-notch.special {
+    padding-top: calc((var(--pos-thumb) - var(--pos-tick-special-h)) / 2);
+}
+
+.pos-tick {
+    width: 2px;
+    height: var(--pos-tick-h);
+    background: var(--color-bg-hover);
+    border-radius: 1px;
+    transition: background 0.1s;
+}
+
+.pos-notch.special .pos-tick {
+    height: var(--pos-tick-special-h);
+    width: 3px;
+}
+
+.pos-notch.active .pos-tick {
+    background: #000;
+}
+
+.pos-notch:hover .pos-tick {
+    background: var(--color-text-dim);
+}
+
+.pos-label {
+    font-size: var(--pos-label-font);
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: var(--color-text-muted);
+    transition: color 0.1s;
+}
+
+.pos-notch.active .pos-label {
+    color: #000;
+}
+
+.pos-notch:hover .pos-label {
+    color: var(--color-text-dim);
+}
+
+/* Thumb — top-aligned, same anchor point as notch centers */
+.pos-thumb {
+    position: absolute;
+    top: 0;
+    width: var(--pos-thumb);
+    height: var(--pos-thumb);
+    background: #000;
+    border-radius: 50%;
+    transform: translateX(-50%);
+    cursor: grab;
+    z-index: 2;
+    transition: left 0.08s;
+}
+
+.pos-thumb:active {
+    cursor: grabbing;
 }
 
 /* --- Compact selector (vertical list) --- */
@@ -408,7 +430,7 @@ html, body {
 }
 
 .selector-wrap.compact .selector-option:hover {
-    color: #555;
+    color: var(--color-text-hover);
 }
 
 .selector-wrap.compact .selector-option.active:hover {
@@ -421,7 +443,7 @@ html, body {
     display: flex;
     align-items: center;
     padding-top: var(--bottom-pad);
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--color-border);
     position: relative;
     z-index: 10;
 }
@@ -443,7 +465,7 @@ html, body {
 .controls-group + .controls-group {
     margin-left: var(--separator-gap);
     padding-left: var(--separator-gap);
-    border-left: 1px solid #eee;
+    border-left: 1px solid var(--color-border);
 }
 
 /* --- Right panel (scale + blend) --- */
@@ -453,13 +475,13 @@ html, body {
     flex-direction: column;
     align-items: center;
     gap: var(--panel-gap);
-    border-left: 1px solid #eee;
+    border-left: 1px solid var(--color-border);
     padding-left: var(--separator-gap);
     margin-left: var(--separator-gap);
     padding-top: var(--bottom-pad);
     padding-bottom: var(--bottom-pad);
     /* SCALE group pokes into selector area by its full container height + padding */
-    margin-top: calc(-1 * (var(--master-knob-push) + var(--master-knob-gap) + var(--label-font) + var(--panel-gap) + var(--bottom-pad)));
+    margin-top: calc(-1 * (var(--master-knob-push) + var(--master-knob-gap) + var(--label-font) + var(--panel-gap) + var(--bottom-pad) + var(--right-panel-extra-overlap)));
 }
 
 /* --- Blend panel --- */
@@ -483,7 +505,7 @@ html, body {
 .blend-toggle {
     width: var(--blend-toggle);
     height: var(--blend-toggle);
-    border: 2px solid #ccc;
+    border: 2px solid var(--color-toggle-border);
     border-radius: 2px;
     cursor: pointer;
     transition: background 0.1s, border-color 0.1s;
@@ -491,7 +513,7 @@ html, body {
 }
 
 .blend-toggle:hover {
-    border-color: #999;
+    border-color: var(--color-text-off);
 }
 
 .blend-toggle.active {
@@ -503,7 +525,7 @@ html, body {
     font-size: var(--label-font);
     font-weight: 900;
     letter-spacing: var(--letter-spacing);
-    color: #888;
+    color: var(--color-text-dim);
     text-transform: uppercase;
     cursor: pointer;
     user-select: none;
@@ -525,7 +547,7 @@ html, body {
     font-size: var(--label-font);
     font-weight: 900;
     letter-spacing: var(--letter-spacing);
-    color: #bbb;
+    color: var(--color-text-muted);
     text-transform: uppercase;
     order: 2;
 }
@@ -603,19 +625,19 @@ html, body {
     font-weight: 900;
     letter-spacing: var(--letter-spacing);
     text-transform: uppercase;
-    color: #888;
+    color: var(--color-text-dim);
     padding: var(--group-pad-y) 0;
     border-radius: var(--radius);
     cursor: pointer;
     user-select: none;
     transition: all 0.15s;
-    background: #ddd;
+    background: var(--color-bg-inactive);
     text-align: center;
 }
 
 .selector-group-btn:hover {
-    background: #ccc;
-    color: #555;
+    background: var(--color-bg-hover);
+    color: var(--color-text-hover);
 }
 
 .selector-group-btn.active {
@@ -644,7 +666,7 @@ html, body {
     left: 25%;
     right: 25%;
     height: var(--toggle-strip-h);
-    background: #333;
+    background: var(--color-toggle-off);
     border-radius: 1px;
     pointer-events: none;
     transition: background 0.15s;
@@ -658,13 +680,13 @@ html, body {
     font-size: var(--toggle-font);
     font-weight: 900;
     letter-spacing: 1px;
-    color: #555;
+    color: var(--color-text-hover);
     pointer-events: none;
     margin-bottom: var(--panel-gap);
 }
 
 .toggle-btn.active .toggle-text {
-    color: #999;
+    color: var(--color-text-off);
 }
 
 /* --- Version label --- */
@@ -674,7 +696,7 @@ html, body {
     bottom: 4px;
     left: 6px;
     font-size: var(--version-font);
-    color: #999;
+    color: var(--color-text-off);
     letter-spacing: 0.5px;
     pointer-events: none;
     user-select: none;

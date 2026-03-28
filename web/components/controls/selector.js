@@ -117,7 +117,7 @@ export class Selector {
             });
         } else if (this.small) {
             // Small ring: percentage-based centering
-            const radiusPct = 38; // % of container width
+            const radiusPct = 32; // % of container width
             options.forEach((label, i) => {
                 const el = document.createElement('div');
                 el.className = 'selector-option';

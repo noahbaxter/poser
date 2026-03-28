@@ -6,6 +6,7 @@ import {
 import { Knob } from './components/controls/knob.js';
 import { Selector } from './components/controls/selector.js';
 import { Toggle } from './components/controls/toggle.js';
+import { PositionSlider } from './components/controls/position-slider.js';
 
 // ---- Init: called by C++ with component data ----
 
@@ -61,9 +62,13 @@ function buildUI(config) {
     cabPanel.id = 'panel-cab';
     selectorArea.appendChild(cabPanel);
 
+    const cabLayout = document.createElement('div');
+    cabLayout.className = 'cabinet-layout';
+    cabPanel.appendChild(cabLayout);
+
     const cabinetDiv = document.createElement('div');
     cabinetDiv.className = 'cabinet-panel';
-    cabPanel.appendChild(cabinetDiv);
+    cabLayout.appendChild(cabinetDiv);
 
     for (const subId of ['cab', 'speaker']) {
         const sub = cabinet[subId];
@@ -87,6 +92,15 @@ function buildUI(config) {
 
         cabinetDiv.appendChild(col);
     }
+
+    // Position slider below cab/speaker selectors
+    const posComp = config.components.position;
+    const posSlider = new PositionSlider(cabLayout, {
+        options: posComp.options,
+        paramId: posComp.paramId,
+        onChange: (index, name) => { state.position.selected = index; },
+    });
+    selectors.position = posSlider;
 
     // ---- Tab switching ----
 
@@ -131,12 +145,12 @@ function buildUI(config) {
 
         blendKnobs[bc.id] = new Knob(knobSlot, {
             param: bc.blendId,
-            min: 0, max: 100, step: 1,
+            min: -100, max: 100, step: 1,
             defaultValue: 100,
             className: 'blend-knob',
-            formatValue: (v) => `${v}%`,
-            toNorm: (v) => v / 100,
-            fromNorm: (n) => n * 100,
+            formatValue: (v) => `${v > 0 ? '+' : ''}${v}%`,
+            toNorm: (v) => (v + 100) / 200,
+            fromNorm: (n) => n * 200 - 100,
         });
 
         row.appendChild(toggle);
@@ -146,7 +160,7 @@ function buildUI(config) {
 
         // Init enabled state from current blend value
         const initBlend = blendKnobs[bc.id].getValue();
-        const enabled = initBlend > 0;
+        const enabled = initBlend !== 0;
         state[bc.id] = { enabled, _savedBlend: 100, selected: 0 };
         toggle.classList.toggle('active', enabled);
         blendKnobs[bc.id].setDisabled(!enabled);
@@ -163,10 +177,10 @@ function buildUI(config) {
 
             if (!state[bc.id].enabled) {
                 state[bc.id]._savedBlend = knob.getValue();
-                setParameterNormalized(bc.blendId, 0);
+                setParameterNormalized(bc.blendId, (0 + 100) / 200); // display 0 = no effect
             } else {
                 const restore = state[bc.id]._savedBlend ?? 100;
-                setParameterNormalized(bc.blendId, restore / 100);
+                setParameterNormalized(bc.blendId, (restore + 100) / 200);
             }
 
             updateTabStates();
@@ -187,13 +201,13 @@ function buildUI(config) {
 
     new Knob(document.getElementById('master-push'), {
         param: 'master_push',
-        min: -500, max: 500, step: 1,
+        min: 0, max: 500, step: 1,
         defaultValue: 100,
         className: 'master-knob push-knob',
-        formatValue: (v) => `${v > 0 ? '+' : ''}${v}%`,
+        formatValue: (v) => `${v}%`,
         tooltipAbove: true,
-        toNorm: (v) => (v + 500) / 1000,
-        fromNorm: (n) => n * 1000 - 500,
+        toNorm: (v) => v / 500,
+        fromNorm: (n) => n * 500,
     });
 
     new Knob(document.getElementById('master-trim'), {

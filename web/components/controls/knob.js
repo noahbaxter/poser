@@ -95,12 +95,32 @@ export class Knob {
             if (!this.dragging) return;
             parameterDragEnded(this.param);
             this.dragging = false;
-            this._hideTooltip();
+            this._scheduleHideTooltip();
         });
 
         this.el.addEventListener('dblclick', (e) => {
             this._setFromUser(this.defaultValue);
+            this._showTooltip();
+            this._scheduleHideTooltip();
             e.stopPropagation();
+        });
+
+        this.el.addEventListener('wheel', (e) => {
+            if (this.el.classList.contains('disabled')) return;
+            e.preventDefault();
+            const direction = e.deltaY < 0 ? 1 : -1;
+            const coarse = this.step * 5;
+            let newVal;
+            if (e.shiftKey) {
+                newVal = this.value + direction * this.step;
+            } else {
+                // Snap to nearest coarse grid, then step in that direction
+                const snapped = Math.round(this.value / coarse) * coarse;
+                newVal = snapped + direction * coarse;
+            }
+            this._setFromUser(newVal);
+            this._showTooltip();
+            this._scheduleHideTooltip();
         });
     }
 
@@ -152,6 +172,13 @@ export class Knob {
         this.el.classList.toggle('disabled', disabled);
     }
 
+    _scheduleHideTooltip() {
+        clearTimeout(Knob._activeTimer);
+        Knob._activeTimer = setTimeout(() => this._hideTooltip(), 600);
+    }
+
+    static _activeTimer = null;
+
     // Tooltip (shared static element)
     static _tooltip = null;
     static _tooltipAnchor = null;
@@ -166,7 +193,12 @@ export class Knob {
     _showTooltip() {
         const tip = Knob._getTooltip();
         if (!tip) return;
-        if (!Knob._tooltipAnchor) {
+        // Reposition if anchor changed to a different knob
+        if (Knob._tooltipAnchor !== this.el) {
+            // Clear any pending hide from the previous knob
+            if (Knob._tooltipAnchor) {
+                clearTimeout(Knob._activeTimer);
+            }
             const rect = this.el.getBoundingClientRect();
             tip.style.left = `${rect.left + rect.width / 2}px`;
             tip.style.top = this.tooltipAbove

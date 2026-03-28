@@ -1,0 +1,111 @@
+:root {
+    /* Plugin shell */
+    --plugin-pad-x: 16px;
+    --plugin-pad-y: 12px;
+
+    /* Ring selector */
+    --ring-size: 300px;
+    --ring-radius: 92px;
+    --ring-knob: 120px;
+    --ring-indicator: 16px;
+    --ring-indicator-offset: 8px;
+    --ring-font: 20px;
+    --ring-font-active: 22px;
+
+    /* Small selector (cabinet sub-selectors) */
+    --ring-small-max: 230px;
+    --ring-small-knob: 80px;
+    --ring-small-indicator: 10px;
+    --ring-small-indicator-offset: 5px;
+    --ring-small-font: 14px;
+    --ring-small-font-active: 16px;
+
+    /* Compact selector (vertical list) */
+    --compact-font: 18px;
+    --compact-font-active: 20px;
+
+    /* Blend knobs */
+    --blend-slot-w: 80px;
+    --blend-knob: 28px;
+    --blend-indicator: 4px;
+    --blend-indicator-offset: 3px;
+
+    /* Master knobs */
+    --master-knob: 48px;
+    --master-knob-gap: 2px;
+    --master-indicator: 7px;
+    --master-indicator-offset: 5px;
+    --master-knob-push: 64px;
+    --master-indicator-push: 9px;
+    --master-indicator-push-offset: 7px;
+
+    /* Tabs */
+    --tab-font: 14px;
+    --tab-w: 100px;
+    --tab-pad-y: 7px;
+
+    /* Group buttons */
+    --group-font: 12px;
+    --group-pad-y: 4px;
+
+    /* Toggle buttons */
+    --toggle-size: 36px;
+    --toggle-font: 8px;
+
+    /* Toggle strip */
+    --toggle-strip-h: 3px;
+    --toggle-strip-offset: 7px;
+
+    /* Labels */
+    --label-font: 10px;
+
+    /* Bottom area */
+    --bottom-gap: 16px;
+    --bottom-pad: 12px;
+    --separator-gap: 12px;
+
+    /* Right panel */
+    --panel-gap: 6px;
+    --right-panel-extra-overlap: 12px;
+
+    /* Blend panel */
+    --blend-toggle: 14px;
+    --blend-panel-gap: 4px;
+    --blend-panel-label-w: 30px;
+
+    /* Position slider */
+    --pos-track-h: 4px;
+    --pos-thumb: 16px;
+    --pos-label-gap: 6px;
+    --pos-tick-h: 10px;
+    --pos-tick-special-h: 14px;
+    --pos-label-font: 8px;
+
+    /* Cabinet columns */
+    --cabinet-gap: 4px;
+    --cabinet-header-gap: 8px;
+
+    /* Tooltip */
+    --tooltip-font: 12px;
+
+    /* Version */
+    --version-font: 9px;
+
+    /* Colors */
+    --color-border: #bbb;
+    --color-bg-inactive: #ddd;
+    --color-bg-hover: #ccc;
+    --color-text-muted: #bbb;
+    --color-text-dim: #888;
+    --color-text-hover: #555;
+    --color-text-off: #999;
+    --color-toggle-off: #333;
+    --color-toggle-border: #ccc;
+    --color-option-inactive: #ccc;
+    --color-disabled: 0.25;
+
+    /* Shared */
+    --radius: 4px;
+    --letter-spacing: 2px;
+    --knob-hit-expand: 8px;
+}
