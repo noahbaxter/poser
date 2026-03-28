@@ -47,7 +47,9 @@ function buildUI(config) {
         options: micComp.options,
         paramId: micComp.paramId,
         groups: config.micGroups,
+        entries: config.micEntries,
         groupBarContainer: groupBarSlot,
+        label: 'MIC',
         onChange: (index, name) => { state.mic.selected = index; },
     });
 
@@ -75,25 +77,24 @@ function buildUI(config) {
         const col = document.createElement('div');
         col.className = 'cabinet-col';
 
-        const header = document.createElement('div');
-        header.className = 'cabinet-col-header';
-        const label = document.createElement('div');
-        label.className = 'cabinet-col-label';
-        label.textContent = sub.label;
-        header.appendChild(label);
-        col.appendChild(header);
 
         selectors[subId] = new Selector(col, {
             options: sub.options,
             paramId: sub.paramId,
             small: true,
+            label: sub.label,
             onChange: (index, name) => { state[subId].selected = index; },
         });
 
         cabinetDiv.appendChild(col);
     }
 
-    // Position slider below cab/speaker selectors
+    // Position label + slider below cab/speaker selectors
+    const posHeader = document.createElement('div');
+    posHeader.className = 'cabinet-col-label pos-header';
+    posHeader.textContent = 'POS';
+    cabLayout.appendChild(posHeader);
+
     const posComp = config.components.position;
     const posSlider = new PositionSlider(cabLayout, {
         options: posComp.options,
@@ -153,8 +154,11 @@ function buildUI(config) {
             fromNorm: (n) => n * 200 - 100,
         });
 
-        row.appendChild(toggle);
-        row.appendChild(lbl);
+        const toggleGroup = document.createElement('div');
+        toggleGroup.className = 'blend-toggle-group';
+        toggleGroup.appendChild(toggle);
+        toggleGroup.appendChild(lbl);
+        row.appendChild(toggleGroup);
         row.appendChild(knobSlot);
         blendPanel.appendChild(row);
 
@@ -165,15 +169,17 @@ function buildUI(config) {
         toggle.classList.toggle('active', enabled);
         blendKnobs[bc.id].setDisabled(!enabled);
         if (selectors[bc.id]) selectors[bc.id].setDisabled(!enabled);
+        if (bc.id === 'position') posHeader.classList.toggle('disabled', !enabled);
 
-        // Toggle handler
-        toggle.addEventListener('click', () => {
+        // Toggle group handler (toggle + label act as one)
+        toggleGroup.addEventListener('click', () => {
             state[bc.id].enabled = !state[bc.id].enabled;
             toggle.classList.toggle('active', state[bc.id].enabled);
 
             const knob = blendKnobs[bc.id];
             knob.setDisabled(!state[bc.id].enabled);
             if (selectors[bc.id]) selectors[bc.id].setDisabled(!state[bc.id].enabled);
+            if (bc.id === 'position') posHeader.classList.toggle('disabled', !state[bc.id].enabled);
 
             if (!state[bc.id].enabled) {
                 state[bc.id]._savedBlend = knob.getValue();
@@ -184,10 +190,8 @@ function buildUI(config) {
             }
 
             updateTabStates();
+            switchTab(bc.tab);
         });
-
-        // Label click → switch to that component's tab
-        lbl.addEventListener('click', () => switchTab(bc.tab));
     }
 
     function updateTabStates() {

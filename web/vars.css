@@ -3,22 +3,21 @@
     --plugin-pad-x: 16px;
     --plugin-pad-y: 12px;
 
-    /* Ring selector */
-    --ring-size: 300px;
-    --ring-radius: 92px;
-    --ring-knob: 120px;
-    --ring-indicator: 16px;
-    --ring-indicator-offset: 8px;
-    --ring-font: 20px;
-    --ring-font-active: 22px;
+    /* Selector proportions (ratios of --knob-size) */
+    --sel-indicator: 0.12;
+    --sel-indicator-offset: 0.06;
+    --sel-label-font: 0.09;
+    --sel-option-font: 0.155;
+    --sel-option-font-active: 0.17;
+    --sel-label-gap: 0.31;
+
+    /* Big selector */
+    --ring-knob: 130px;
+    --ring-size: 340px;
 
     /* Small selector (cabinet sub-selectors) */
-    --ring-small-max: 230px;
-    --ring-small-knob: 80px;
-    --ring-small-indicator: 10px;
-    --ring-small-indicator-offset: 5px;
-    --ring-small-font: 14px;
-    --ring-small-font-active: 16px;
+    --ring-small-knob: 100px;
+    --ring-small-size: 210px;
 
     /* Compact selector (vertical list) */
     --compact-font: 18px;
@@ -40,13 +39,13 @@
     --master-indicator-push-offset: 7px;
 
     /* Tabs */
-    --tab-font: 14px;
-    --tab-w: 100px;
-    --tab-pad-y: 7px;
+    --tab-font: 16px;
+    --tab-w: 140px;
+    --tab-pad-y: 9px;
 
     /* Group buttons */
-    --group-font: 12px;
-    --group-pad-y: 4px;
+    --group-font: 13px;
+    --group-pad-y: 7px;
 
     /* Toggle buttons */
     --toggle-size: 36px;
@@ -82,8 +81,8 @@
     --pos-label-font: 8px;
 
     /* Cabinet columns */
-    --cabinet-gap: 4px;
-    --cabinet-header-gap: 8px;
+    --cabinet-gap: 2px;
+    --cabinet-label-font: 14px;
 
     /* Tooltip */
     --tooltip-font: 12px;
@@ -102,7 +101,7 @@
     --color-toggle-off: #333;
     --color-toggle-border: #ccc;
     --color-option-inactive: #ccc;
-    --color-disabled: 0.25;
+    --color-disabled: 0.4;
 
     /* Shared */
     --radius: 4px;

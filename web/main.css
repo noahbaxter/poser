@@ -149,12 +149,19 @@ html, body {
 }
 
 
-/* --- Big selector knob --- */
+/* --- Selector knob (all sizes driven by --knob-size) --- */
 
 .selector-wrap {
+    --knob-size: var(--ring-knob);
     position: relative;
     width: var(--ring-size);
     height: var(--ring-size);
+}
+
+.selector-wrap.small {
+    --knob-size: var(--ring-small-knob);
+    width: var(--ring-small-size);
+    height: var(--ring-small-size);
 }
 
 .selector-ring {
@@ -164,7 +171,7 @@ html, body {
 
 .selector-option {
     position: absolute;
-    font-size: var(--ring-font);
+    font-size: calc(var(--knob-size) * var(--sel-option-font));
     font-weight: 800;
     color: var(--color-option-inactive);
     white-space: nowrap;
@@ -176,11 +183,19 @@ html, body {
 .selector-option.active {
     color: #000;
     font-weight: 900;
-    font-size: var(--ring-font-active);
+    font-size: calc(var(--knob-size) * var(--sel-option-font-active));
 }
 
 .selector-option:hover {
     color: var(--color-text-dim);
+}
+
+.variant-badge {
+    display: inline-block;
+    font-size: 9px;
+    color: var(--color-text-off);
+    margin-left: 3px;
+    vertical-align: super;
 }
 
 .selector-knob-center {
@@ -188,8 +203,8 @@ html, body {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: var(--ring-knob);
-    height: var(--ring-knob);
+    width: var(--knob-size);
+    height: var(--knob-size);
     background: #000;
     border-radius: 50%;
     cursor: grab;
@@ -203,11 +218,11 @@ html, body {
 
 .selector-indicator {
     position: absolute;
-    top: var(--ring-indicator-offset);
+    top: calc(var(--knob-size) * var(--sel-indicator-offset));
     left: 50%;
     transform: translateX(-50%);
-    width: var(--ring-indicator);
-    height: var(--ring-indicator);
+    width: calc(var(--knob-size) * var(--sel-indicator));
+    height: calc(var(--knob-size) * var(--sel-indicator));
     background: #fff;
     border-radius: 50%;
 }
@@ -219,36 +234,18 @@ html, body {
     pointer-events: none;
 }
 
-/* --- Small selector (cabinet sub-selectors) --- */
-
-.selector-wrap.small {
-    width: 100%;
-    height: 100%;
-    max-width: var(--ring-small-max);
-}
-
-.selector-wrap.small .selector-ring {
+.selector-knob-label {
     position: absolute;
-    inset: 0;
-}
-
-.selector-wrap.small .selector-knob-center {
-    width: var(--ring-small-knob);
-    height: var(--ring-small-knob);
-}
-
-.selector-wrap.small .selector-indicator {
-    top: var(--ring-small-indicator-offset);
-    width: var(--ring-small-indicator);
-    height: var(--ring-small-indicator);
-}
-
-.selector-wrap.small .selector-option {
-    font-size: var(--ring-small-font);
-}
-
-.selector-wrap.small .selector-option.active {
-    font-size: var(--ring-small-font-active);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: calc(var(--knob-size) * var(--sel-label-font));
+    font-weight: 900;
+    letter-spacing: 1.5px;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    pointer-events: none;
+    user-select: none;
 }
 
 /* --- Cabinet layout (selectors + position slider) --- */
@@ -272,6 +269,7 @@ html, body {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     padding: var(--cabinet-gap) 0;
     gap: var(--cabinet-gap);
     overflow: hidden;
@@ -279,22 +277,19 @@ html, body {
 }
 
 .cabinet-col .selector-wrap {
-    flex: 1;
-    min-height: 0;
-}
-
-.cabinet-col-header {
-    display: flex;
-    align-items: center;
-    gap: var(--cabinet-header-gap);
+    flex-shrink: 0;
 }
 
 .cabinet-col-label {
-    font-size: var(--label-font);
+    font-size: var(--cabinet-label-font);
     font-weight: 900;
-    letter-spacing: var(--letter-spacing);
-    color: var(--color-text-muted);
+    letter-spacing: 3px;
+    color: var(--color-text-dim);
     text-transform: uppercase;
+}
+
+.pos-header {
+    padding-left: var(--separator-gap);
 }
 
 /* --- Position slider --- */
@@ -305,7 +300,8 @@ html, body {
     padding-right: calc(var(--master-knob-push) + var(--separator-gap) * 4);
 }
 
-.pos-slider.disabled {
+.pos-slider.disabled,
+.pos-header.disabled {
     opacity: var(--color-disabled);
     pointer-events: none;
 }
@@ -507,13 +503,22 @@ html, body {
     height: var(--blend-toggle);
     border: 2px solid var(--color-toggle-border);
     border-radius: 2px;
-    cursor: pointer;
-    transition: background 0.1s, border-color 0.1s;
     flex-shrink: 0;
 }
 
-.blend-toggle:hover {
-    border-color: var(--color-text-off);
+.blend-toggle-group {
+    display: flex;
+    align-items: center;
+    gap: var(--panel-gap);
+    cursor: pointer;
+}
+
+.blend-toggle-group:hover .blend-panel-label {
+    color: #000;
+}
+
+.blend-toggle-group:hover .blend-toggle:not(.active) {
+    border-color: #000;
 }
 
 .blend-toggle.active {
@@ -527,13 +532,8 @@ html, body {
     letter-spacing: var(--letter-spacing);
     color: var(--color-text-dim);
     text-transform: uppercase;
-    cursor: pointer;
     user-select: none;
     width: var(--blend-panel-label-w);
-}
-
-.blend-panel-label:hover {
-    color: #000;
 }
 
 .master-group {

@@ -26,6 +26,7 @@ export class Selector {
         this.paramId = opts.paramId;
         this.groups = opts.groups || null;
         this.groupBarContainer = opts.groupBarContainer || null;
+        this.entries = opts.entries || null; // MicEntry[] for variant support
         this.onChange = opts.onChange || null;
         this.compact = opts.compact || false;
         this.small = opts.small || false;
@@ -35,6 +36,8 @@ export class Selector {
         this.currentGroupIdx = 0;
         this.dragging = false;
 
+        this.label = opts.label || null;
+        this.labelFixed = opts.labelFixed !== false; // default: doesn't rotate
         this._build(container);
         this._bindDrag();
         this._readFromBackend();
@@ -86,7 +89,19 @@ export class Selector {
             const indicator = document.createElement('div');
             indicator.className = 'selector-indicator';
             this.center.appendChild(indicator);
+            if (this.label && !this.labelFixed) {
+                const lbl = document.createElement('div');
+                lbl.className = 'selector-knob-label';
+                lbl.textContent = this.label;
+                this.center.appendChild(lbl);
+            }
             this.wrap.appendChild(this.center);
+            if (this.label && this.labelFixed) {
+                const lbl = document.createElement('div');
+                lbl.className = 'selector-knob-label';
+                lbl.textContent = this.label;
+                this.wrap.appendChild(lbl);
+            }
         }
 
         container.appendChild(this.wrap);
@@ -116,8 +131,14 @@ export class Selector {
                 this.optionElements.push(el);
             });
         } else if (this.small) {
-            // Small ring: percentage-based centering
-            const radiusPct = 32; // % of container width
+            // Small ring: all sizing derived from --knob-size
+            const style = getComputedStyle(this.wrap);
+            const knobSize = parseInt(style.getPropertyValue('--knob-size')) || 100;
+            const labelGapRatio = parseFloat(style.getPropertyValue('--sel-label-gap')) || 0.31;
+            const ringRadius = knobSize * (0.5 + labelGapRatio);
+            const wrapW = parseInt(style.getPropertyValue('width')) || 210;
+            const cx = wrapW / 2;
+            const cy = cx;
             options.forEach((label, i) => {
                 const el = document.createElement('div');
                 el.className = 'selector-option';
@@ -125,11 +146,11 @@ export class Selector {
 
                 const angle = (i / n) * 360 - 90;
                 const rad = angle * Math.PI / 180;
-                const xPct = 50 + radiusPct * Math.cos(rad);
-                const yPct = 50 + radiusPct * Math.sin(rad);
+                const x = cx + ringRadius * Math.cos(rad);
+                const y = cy + ringRadius * Math.sin(rad);
 
-                el.style.left = `${xPct}%`;
-                el.style.top = `${yPct}%`;
+                el.style.left = `${x}px`;
+                el.style.top = `${y}px`;
                 el.style.transform = 'translate(-50%, -50%)';
 
                 el.addEventListener('click', (e) => {
@@ -141,17 +162,31 @@ export class Selector {
                 this.optionElements.push(el);
             });
         } else {
-            // Ring mode: circular layout (read from CSS custom properties)
-            const style = getComputedStyle(document.documentElement);
-            const ringRadius = parseInt(style.getPropertyValue('--ring-radius')) || 105;
-            const wrapW = parseInt(style.getPropertyValue('--ring-size')) || 340;
+            // Ring mode: all sizing derived from --knob-size
+            const style = getComputedStyle(this.wrap);
+            const knobSize = parseInt(style.getPropertyValue('--knob-size')) || 130;
+            const labelGapRatio = parseFloat(style.getPropertyValue('--sel-label-gap')) || 0.31;
+            const ringRadius = knobSize * (0.5 + labelGapRatio);
+            const wrapW = parseInt(style.getPropertyValue('width')) || 340;
             const cx = wrapW / 2;
             const cy = cx;
 
+            const indices = this._currentIndices();
             options.forEach((label, i) => {
                 const el = document.createElement('div');
                 el.className = 'selector-option';
                 el.textContent = label;
+
+                // Variant badge for multi-variant entries
+                if (this.entries) {
+                    const ent = this.entries[indices[i]];
+                    if (ent && ent.numVariants > 1) {
+                        const badge = document.createElement('span');
+                        badge.className = 'variant-badge';
+                        badge.textContent = `1/${ent.numVariants}`;
+                        el.appendChild(badge);
+                    }
+                }
 
                 const angle = (i / n) * 360 - 90;
                 const rad = angle * Math.PI / 180;
@@ -175,6 +210,22 @@ export class Selector {
                     this._selectLocalFromUser(i);
                     e.stopPropagation();
                 });
+
+                // Scroll on a label = cycle that mic's variants
+                if (this.entries) {
+                    const entIdx = indices[i];
+                    el.addEventListener('wheel', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const ent = this.entries[entIdx];
+                        if (!ent || ent.numVariants <= 1) return;
+                        // Select this mic first if not already selected
+                        if (this._entryForGlobal(this.currentGlobalIndex) !== entIdx) {
+                            this._selectLocalFromUser(i);
+                        }
+                        this._cycleVariant(e.deltaY > 0 ? -1 : 1);
+                    });
+                }
 
                 this.ring.appendChild(el);
                 this.optionElements.push(el);
@@ -201,9 +252,11 @@ export class Selector {
         const group = this.groups[this.currentGroupIdx];
         if (!group.tags || group.tags.length === 0) return;
 
-        const style = getComputedStyle(document.documentElement);
-        const ringRadius = parseInt(style.getPropertyValue('--ring-radius')) || 92;
-        const wrapW = parseInt(style.getPropertyValue('--ring-size')) || 300;
+        const style = getComputedStyle(this.wrap);
+        const knobSize = parseInt(style.getPropertyValue('--knob-size')) || 130;
+        const labelGapRatio = parseFloat(style.getPropertyValue('--sel-label-gap')) || 0.31;
+        const ringRadius = knobSize * (0.5 + labelGapRatio);
+        const wrapW = parseInt(style.getPropertyValue('width')) || 340;
         const cx = wrapW / 2;
         const cy = cx;
         const arcRadius = ringRadius + 22;
@@ -238,13 +291,44 @@ export class Selector {
         }
     }
 
+    // --- Entry/variant helpers ---
+
+    // Which entry index owns a given flat global index?
+    _entryForGlobal(globalIdx) {
+        if (!this.entries) return globalIdx;
+        for (let e = 0; e < this.entries.length; e++) {
+            const ent = this.entries[e];
+            if (globalIdx >= ent.firstIndex && globalIdx < ent.firstIndex + ent.numVariants)
+                return e;
+        }
+        return 0;
+    }
+
+    // Current variant offset within the selected entry
+    _currentVariantOffset() {
+        if (!this.entries) return 0;
+        const ent = this.entries[this._entryForGlobal(this.currentGlobalIndex)];
+        return this.currentGlobalIndex - ent.firstIndex;
+    }
+
     _currentOptions() {
+        if (this.entries) {
+            // Ring shows entry names
+            if (!this.groups) return this.entries.map(e => e.name);
+            const group = this.groups[this.currentGroupIdx];
+            return group.indices.map(i => this.entries[i].name);
+        }
         if (!this.groups) return this.allOptions;
         const group = this.groups[this.currentGroupIdx];
         return group.indices.map(i => this.allOptions[i]);
     }
 
+    // Returns entry indices (when entries exist) or flat indices
     _currentIndices() {
+        if (this.entries) {
+            if (!this.groups) return this.entries.map((_, i) => i);
+            return this.groups[this.currentGroupIdx].indices;
+        }
         if (!this.groups) return this.allOptions.map((_, i) => i);
         return this.groups[this.currentGroupIdx].indices;
     }
@@ -253,7 +337,10 @@ export class Selector {
         const indices = this._currentIndices();
         const n = indices.length;
         localIdx = ((localIdx % n) + n) % n;
-        const globalIdx = indices[localIdx];
+        const idx = indices[localIdx];
+
+        // Map entry index → flat parameter index (use firstIndex)
+        const globalIdx = this.entries ? this.entries[idx].firstIndex : idx;
 
         this.currentGlobalIndex = globalIdx;
         this._highlightCurrent();
@@ -265,12 +352,53 @@ export class Selector {
         if (this.onChange) this.onChange(globalIdx, this.allOptions[globalIdx]);
     }
 
+    // Cycle variant within the currently selected entry
+    _cycleVariant(direction) {
+        if (!this.entries) return;
+        const entryIdx = this._entryForGlobal(this.currentGlobalIndex);
+        const ent = this.entries[entryIdx];
+        if (ent.numVariants <= 1) return;
+
+        const offset = this.currentGlobalIndex - ent.firstIndex;
+        const newOffset = offset + direction;
+        if (newOffset < 0 || newOffset >= ent.numVariants) return;
+
+        this.currentGlobalIndex = ent.firstIndex + newOffset;
+        this._highlightCurrent();
+
+        parameterDragStarted(this.paramId);
+        setParameterNormalized(this.paramId, selectToNorm(this.currentGlobalIndex, this.maxVal));
+        parameterDragEnded(this.paramId);
+
+        if (this.onChange) this.onChange(this.currentGlobalIndex, this.allOptions[this.currentGlobalIndex]);
+    }
+
     _highlightCurrent() {
         const indices = this._currentIndices();
-        const localIdx = indices.indexOf(this.currentGlobalIndex);
+        // Find which local slot is active
+        let localIdx;
+        if (this.entries) {
+            const entryIdx = this._entryForGlobal(this.currentGlobalIndex);
+            localIdx = indices.indexOf(entryIdx);
+        } else {
+            localIdx = indices.indexOf(this.currentGlobalIndex);
+        }
         const n = indices.length;
 
-        this.optionElements.forEach((el, j) => el.classList.toggle('active', j === localIdx));
+        this.optionElements.forEach((el, j) => {
+            el.classList.toggle('active', j === localIdx);
+            // Show variant indicator for multi-variant entries
+            if (this.entries && j < indices.length) {
+                const ent = this.entries[indices[j]];
+                const badge = el.querySelector('.variant-badge');
+                if (ent && ent.numVariants > 1) {
+                    const offset = (j === localIdx) ? this._currentVariantOffset() : 0;
+                    if (badge) {
+                        badge.textContent = `${offset + 1}/${ent.numVariants}`;
+                    }
+                }
+            }
+        });
 
         if (!this.compact && localIdx >= 0) {
             this.center.style.transform = `translate(-50%, -50%) rotate(${(localIdx / n) * 360}deg)`;
@@ -308,7 +436,10 @@ export class Selector {
                 dragAccum += dy;
                 if (Math.abs(dragAccum) >= 25) {
                     const indices = this._currentIndices();
-                    const localIdx = indices.indexOf(this.currentGlobalIndex);
+                    const entryIdx = this.entries
+                        ? this._entryForGlobal(this.currentGlobalIndex)
+                        : this.currentGlobalIndex;
+                    const localIdx = indices.indexOf(entryIdx);
                     this._selectLocalFromUser(localIdx + Math.sign(dragAccum));
                     dragAccum = 0;
                 }
@@ -319,24 +450,45 @@ export class Selector {
 
         this.wrap.addEventListener('wheel', (e) => {
             e.preventDefault();
+            const direction = e.deltaY > 0 ? -1 : 1;
+
+            // Shift+scroll = cycle variants within current mic
+            if (e.shiftKey && this.entries) {
+                this._cycleVariant(direction);
+                return;
+            }
+
+            // Normal scroll = cycle mics
             const indices = this._currentIndices();
-            const localIdx = indices.indexOf(this.currentGlobalIndex);
-            this._selectLocalFromUser(localIdx + (e.deltaY > 0 ? -1 : 1));
+            const entryIdx = this.entries
+                ? this._entryForGlobal(this.currentGlobalIndex)
+                : this.currentGlobalIndex;
+            const localIdx = indices.indexOf(entryIdx);
+            this._selectLocalFromUser(localIdx + direction);
         });
+    }
+
+    // Find which group contains the current selection (prefer staying in current group)
+    _findGroupForCurrent() {
+        const lookupIdx = this.entries
+            ? this._entryForGlobal(this.currentGlobalIndex)
+            : this.currentGlobalIndex;
+        // Stay in current group if it contains this mic
+        if (this.groups[this.currentGroupIdx].indices.includes(lookupIdx))
+            return this.currentGroupIdx;
+        // Otherwise find first matching group
+        for (let g = 0; g < this.groups.length; g++) {
+            if (this.groups[g].indices.includes(lookupIdx)) return g;
+        }
+        return 0;
     }
 
     _readFromBackend() {
         const norm = getParameterNormalized(this.paramId);
         this.currentGlobalIndex = normToSelect(norm, this.maxVal);
 
-        // If grouped, switch to the group containing this mic
         if (this.groups) {
-            for (let g = 0; g < this.groups.length; g++) {
-                if (this.groups[g].indices.includes(this.currentGlobalIndex)) {
-                    this.currentGroupIdx = g;
-                    break;
-                }
-            }
+            this.currentGroupIdx = this._findGroupForCurrent();
             this._buildRing();
         }
 
@@ -349,17 +501,11 @@ export class Selector {
             const norm = getParameterNormalized(this.paramId);
             this.currentGlobalIndex = normToSelect(norm, this.maxVal);
 
-            // Switch group if needed
             if (this.groups) {
-                const indices = this._currentIndices();
-                if (!indices.includes(this.currentGlobalIndex)) {
-                    for (let g = 0; g < this.groups.length; g++) {
-                        if (this.groups[g].indices.includes(this.currentGlobalIndex)) {
-                            this.currentGroupIdx = g;
-                            this._buildRing();
-                            break;
-                        }
-                    }
+                const newGroup = this._findGroupForCurrent();
+                if (newGroup !== this.currentGroupIdx) {
+                    this.currentGroupIdx = newGroup;
+                    this._buildRing();
                 }
             }
 
