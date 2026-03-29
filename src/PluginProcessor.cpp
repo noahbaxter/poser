@@ -84,6 +84,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoserProcessor::createParame
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"gain_comp", 1}, "Gain Comp", true));
 
+    // Mic curve mode: 0 = Character (relative to average), 1 = Full (relative to flat)
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{"mic_curve_mode", 1}, "Mic Curve Mode", 0, 1, 1));
+
+    // Swap mic: source mic to subtract (-1 = off). Stored as 0..N where 0 = off.
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{"swap_mic_select", 1}, "Swap Mic Select", 0, ::CurveData::kNumMics, 0));
+
     return {params.begin(), params.end()};
 }
 
@@ -105,7 +113,7 @@ void PoserProcessor::releaseResources() {}
 
 void PoserProcessor::updateEqIfNeeded()
 {
-    float params[15] = {
+    float params[17] = {
         apvts.getRawParameterValue("mic_select")->load(),
         apvts.getRawParameterValue("cab_select")->load(),
         apvts.getRawParameterValue("speaker_select")->load(),
@@ -121,6 +129,8 @@ void PoserProcessor::updateEqIfNeeded()
         apvts.getRawParameterValue("curve_mode")->load(),
         apvts.getRawParameterValue("cab_filter")->load(),
         apvts.getRawParameterValue("gain_comp")->load(),
+        apvts.getRawParameterValue("mic_curve_mode")->load(),
+        apvts.getRawParameterValue("swap_mic_select")->load(),
     };
 
     if (!needsResponseUpdate && std::memcmp(params, prevParams, sizeof(params)) == 0)
@@ -128,6 +138,8 @@ void PoserProcessor::updateEqIfNeeded()
 
     std::memcpy(prevParams, params, sizeof(params));
     needsResponseUpdate = false;
+
+    int swapMicRaw = static_cast<int>(params[16]);
 
     eq.updateResponse({
         .micSel      = static_cast<int>(params[0]),
@@ -144,6 +156,8 @@ void PoserProcessor::updateEqIfNeeded()
         .curveMode   = static_cast<int>(params[12]),
         .cabFilter   = params[13] >= 0.5f,
         .gainComp    = params[14] >= 0.5f,
+        .micCurveMode = static_cast<int>(params[15]),
+        .swapMicSel  = swapMicRaw - 1,  // 0 = off → -1, 1..N → 0..N-1
         .sampleRate  = currentSampleRate,
     });
 }

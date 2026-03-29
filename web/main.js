@@ -1,6 +1,6 @@
 import { Selector } from './components/controls/selector.js';
 import { PositionSlider } from './components/controls/position-slider.js';
-import { buildBlendPanel, buildMasterControls } from './components/bottom-panel.js';
+import { buildBlendPanel, buildMasterControls, buildSwapMicSelect } from './components/bottom-panel.js';
 import { FreqResponse } from './components/freq-response.js';
 
 // ---- Init: called by C++ with component data ----
@@ -121,13 +121,21 @@ function buildUI(config) {
         posHeader.classList.toggle('disabled', !s.position.enabled);
     }
 
-    const { state } = buildBlendPanel(
+    const { state, rows } = buildBlendPanel(
         document.getElementById('blend-panel'), blendConfig, config.params,
         selectors, switchTab, onBlendStateChange,
     );
     onBlendStateChange(state);
 
     const masterKnobs = buildMasterControls(config.params);
+
+    // Swap mic selector — tucked right after the MIC blend row
+    buildSwapMicSelect(
+        rows.mic,
+        micComp.options,
+        'swap_mic_select',
+        config.params['swap_mic_select'],
+    );
 
     // EQ viewer
     const eqViewer = new FreqResponse(

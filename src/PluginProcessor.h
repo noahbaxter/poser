@@ -52,7 +52,7 @@ private:
     // DSP
     EqProcessor eq;
     bool needsResponseUpdate = true;
-    float prevParams[15] = {};
+    float prevParams[17] = {};
 
     void updateEqIfNeeded();
 

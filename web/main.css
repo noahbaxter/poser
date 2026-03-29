@@ -798,3 +798,45 @@ body {
     color: #000;
     border-color: #888;
 }
+
+/* --- Swap mic selector --- */
+
+.swap-mic-row {
+    display: flex;
+    align-items: center;
+    gap: var(--panel-gap);
+}
+
+.swap-mic-label {
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: var(--letter-spacing);
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    user-select: none;
+    width: var(--blend-panel-label-w);
+    text-align: right;
+}
+
+.swap-mic-select {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 1px 2px;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    outline: none;
+}
+
+.swap-mic-select:hover {
+    border-color: #888;
+    color: #000;
+}
+
+.swap-mic-select:focus {
+    border-color: #000;
+    color: #000;
+}

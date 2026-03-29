@@ -44,6 +44,8 @@ private:
     juce::WebSliderRelay curveModeRelay;
     juce::WebSliderRelay cabFilterRelay;
     juce::WebSliderRelay gainCompRelay;
+    juce::WebSliderRelay micCurveModeRelay;
+    juce::WebSliderRelay swapMicSelectRelay;
 
     // WebView component (must be after relays)
     juce::WebBrowserComponent webView;
@@ -64,6 +66,8 @@ private:
     juce::WebSliderParameterAttachment curveModeAttach;
     juce::WebSliderParameterAttachment cabFilterAttach;
     juce::WebSliderParameterAttachment gainCompAttach;
+    juce::WebSliderParameterAttachment micCurveModeAttach;
+    juce::WebSliderParameterAttachment swapMicSelectAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PoserEditor)
 };

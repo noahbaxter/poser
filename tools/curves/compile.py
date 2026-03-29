@@ -227,8 +227,10 @@ def build_components():
             raw = np.array(v["magnitude_db"])
             character = raw - avg_curve
             tapered = apply_safety_taper(character, target_freqs)
+            tapered_full = apply_safety_taper(raw, target_freqs)
             processed_variants.append({
                 "magnitude_db": tapered.tolist(),
+                "magnitude_db_full": tapered_full.tolist(),
                 "source": v["source"],
                 "label": v["label"],
                 "peak_to_peak_db": float(np.ptp(tapered)),
@@ -441,7 +443,7 @@ def generate_header():
         mic_items = components["mic"]
         mic_sorted = sorted(mic_items.keys())
 
-        # Emit all variant curve data arrays
+        # Emit all variant curve data arrays (character + full)
         for name in mic_sorted:
             mic = mic_items[name]
             variants = mic.get("variants", [mic])  # backward compat
@@ -452,14 +454,24 @@ def generate_header():
                 mag = v["magnitude_db"]
                 raw_peak = max(abs(val) for val in mag)
                 label = f"{name}" if len(variants) == 1 else f"{name} #{vi+1}"
-                print(f"  {label:16s} peak {raw_peak:5.2f}dB")
+                print(f"  {label:16s} char peak {raw_peak:5.2f}dB", end="")
                 out.append(f"static constexpr float {var_name}[] = {{")
                 out.append(format_float_array(mag))
                 out.append("};")
                 out.append("")
 
-        # Flat kMics[] array — all variants consecutive per mic
+                # Full (raw normalized, no character extraction) curve
+                mag_full = v.get("magnitude_db_full", mag)
+                full_peak = max(abs(val) for val in mag_full)
+                print(f"  full peak {full_peak:5.2f}dB")
+                out.append(f"static constexpr float {var_name}_full[] = {{")
+                out.append(format_float_array(mag_full))
+                out.append("};")
+                out.append("")
+
+        # Flat kMics[] array — character curves, all variants consecutive per mic
         flat_entries = []
+        flat_entries_full = []
         for name in mic_sorted:
             mic = mic_items[name]
             variants = mic.get("variants", [mic])
@@ -468,12 +480,19 @@ def generate_header():
                 ident = sanitize_ident(name)
                 var_name = f"kMic_{ident}{suffix}"
                 flat_entries.append(f'    {{"{name}", {var_name}}}')
+                flat_entries_full.append(f'    {{"{name}", {var_name}_full}}')
 
         out.append("static constexpr Curve kMics[] = {")
         out.append(",\n".join(flat_entries))
         out.append("};")
         out.append(f"static constexpr int kNumMics = {len(flat_entries)};")
         out.append("")
+
+        out.append("static constexpr Curve kMicsFull[] = {")
+        out.append(",\n".join(flat_entries_full))
+        out.append("};")
+        out.append("")
+
         print(f"Mics: {len(flat_entries)} curves across {len(mic_sorted)} mics")
 
         # MicEntry table — groups variants per mic

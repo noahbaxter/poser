@@ -10,11 +10,12 @@ import {
 } from '../../lib/juce-bridge.js';
 
 export class Toggle {
-    constructor(container, { param }) {
+    constructor(container, { param, title }) {
         this.param = param;
 
         this.el = document.createElement('div');
         this.el.className = 'toggle-btn';
+        if (title) this.el.title = title;
 
         // Horizontal strip indicator
         this.strip = document.createElement('div');

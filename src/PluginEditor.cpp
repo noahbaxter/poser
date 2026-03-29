@@ -26,6 +26,8 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       curveModeRelay{"curve_mode"},
       cabFilterRelay{"cab_filter"},
       gainCompRelay{"gain_comp"},
+      micCurveModeRelay{"mic_curve_mode"},
+      swapMicSelectRelay{"swap_mic_select"},
       webView{
           juce::WebBrowserComponent::Options{}
               .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
@@ -51,6 +53,8 @@ PoserEditor::PoserEditor(PoserProcessor& p)
               .withOptionsFrom(curveModeRelay)
               .withOptionsFrom(cabFilterRelay)
               .withOptionsFrom(gainCompRelay)
+              .withOptionsFrom(micCurveModeRelay)
+              .withOptionsFrom(swapMicSelectRelay)
               .withNativeFunction("toggleEqViewer",
                   [this](const juce::Array<juce::var>& args, juce::WebBrowserComponent::NativeFunctionCompletion complete) {
                       juce::ignoreUnused(args);
@@ -73,7 +77,9 @@ PoserEditor::PoserEditor(PoserProcessor& p)
       curveHighCutAttach{*audioProcessor.getAPVTS().getParameter("curve_high_cut"), curveHighCutRelay, nullptr},
       curveModeAttach{*audioProcessor.getAPVTS().getParameter("curve_mode"), curveModeRelay, nullptr},
       cabFilterAttach{*audioProcessor.getAPVTS().getParameter("cab_filter"), cabFilterRelay, nullptr},
-      gainCompAttach{*audioProcessor.getAPVTS().getParameter("gain_comp"), gainCompRelay, nullptr}
+      gainCompAttach{*audioProcessor.getAPVTS().getParameter("gain_comp"), gainCompRelay, nullptr},
+      micCurveModeAttach{*audioProcessor.getAPVTS().getParameter("mic_curve_mode"), micCurveModeRelay, nullptr},
+      swapMicSelectAttach{*audioProcessor.getAPVTS().getParameter("swap_mic_select"), swapMicSelectRelay, nullptr}
 {
     addAndMakeVisible(webView);
     webView.setWantsKeyboardFocus(false);
@@ -299,8 +305,9 @@ std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getCurvesResourc
     constexpr int nHPF  = ::CurveData::kNumCabHPFs;
     constexpr int nLPF  = ::CurveData::kNumSpeakerLPFs;
 
+    // Header: 7 counts + layout includes full mic curves after character curves
     constexpr size_t headerSize  = 7 * sizeof(uint32_t);
-    constexpr size_t floatCount  = bins + (nMics + nCabs + nSpk + nPos + nHPF + nLPF) * bins;
+    constexpr size_t floatCount  = bins + (nMics * 2 + nCabs + nSpk + nPos + nHPF + nLPF) * bins;
     constexpr size_t totalSize   = headerSize + floatCount * sizeof(float);
 
     std::vector<std::byte> bytes(totalSize);
@@ -329,6 +336,7 @@ std::optional<juce::WebBrowserComponent::Resource> PoserEditor::getCurvesResourc
     };
 
     writeCurves(::CurveData::kMics, nMics);
+    writeCurves(::CurveData::kMicsFull, nMics);  // full curves follow character curves
     writeCurves(::CurveData::kCabs, nCabs);
     writeCurves(::CurveData::kSpeakers, nSpk);
     writeCurves(::CurveData::kPositions, nPos);

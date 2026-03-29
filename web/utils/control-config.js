@@ -24,8 +24,9 @@ export const MASTER_CONTROLS = [
 
 // Toggle wiring: DOM element → JUCE param
 export const TOGGLE_CONTROLS = [
-    { elementId: 'cab-filter-slot', paramId: 'cab_filter' },
-    { elementId: 'gain-comp-slot',  paramId: 'gain_comp'  },
+    { elementId: 'cab-filter-slot', paramId: 'cab_filter',      title: 'Cab filter — apply per-cab HPF + per-speaker LPF' },
+    { elementId: 'gain-comp-slot',  paramId: 'gain_comp',       title: 'Gain compensation — normalize loudness across curves' },
+    { elementId: 'mic-curve-mode-slot', paramId: 'mic_curve_mode', title: 'Full mode — use raw mic response (dramatic) vs character only (subtle)' },
 ];
 
 // ---- Utility: build Knob constructor opts from KNOBS entry + C++ param ----

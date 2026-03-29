@@ -108,6 +108,7 @@ export class FreqResponse {
             'mic_select', 'cab_select', 'speaker_select', 'position_select',
             'mic_blend', 'cab_blend', 'speaker_blend', 'position_blend',
             'master_push', 'curve_low_cut', 'curve_high_cut', 'cab_filter',
+            'mic_curve_mode', 'swap_mic_select',
         ];
         for (const id of paramIds) {
             onParameterChange(id, () => this.updateCurve());
@@ -247,6 +248,8 @@ export class FreqResponse {
             lowCutHz:    getParameterScaled('curve_low_cut'),
             highCutHz:   getParameterScaled('curve_high_cut'),
             cabFilter:   getParameterScaled('cab_filter') >= 0.5,
+            micCurveMode: Math.round(getParameterScaled('mic_curve_mode')),
+            swapMicSel:  Math.round(getParameterScaled('swap_mic_select')) - 1,  // 0=off → -1
         };
 
         this.compositeDb = computeCompositeCurve(this.curveData, p);
@@ -582,6 +585,7 @@ function parseCurveBinary(buffer) {
     return {
         frequencies,
         mics: readCurves(numMics),
+        micsFull: readCurves(numMics),
         cabs: readCurves(numCabs),
         speakers: readCurves(numSpeakers),
         positions: readCurves(numPositions),
@@ -593,15 +597,19 @@ function parseCurveBinary(buffer) {
 // --- Composite curve computation (mirrors C++ updateResponse, no gain comp) ---
 
 function computeCompositeCurve(curveData, p) {
-    const { frequencies, mics, cabs, speakers, positions, cabHPFs, speakerLPFs } = curveData;
+    const { frequencies, mics, micsFull, cabs, speakers, positions, cabHPFs, speakerLPFs } = curveData;
+    const activeMics = p.micCurveMode === 1 ? micsFull : mics;
     const N = frequencies.length;
     const result = new Float32Array(N);
 
     for (let i = 0; i < N; i++) {
         let totalDb = 0;
 
-        if (p.micBlend !== 0 && p.micSel >= 0 && p.micSel < mics.length)
-            totalDb += mics[p.micSel][i] * p.micBlend;
+        if (p.micBlend !== 0 && p.micSel >= 0 && p.micSel < activeMics.length) {
+            totalDb += activeMics[p.micSel][i] * p.micBlend;
+            if (p.swapMicSel >= 0 && p.swapMicSel < activeMics.length)
+                totalDb -= activeMics[p.swapMicSel][i];
+        }
         if (p.cabBlend !== 0 && p.cabSel >= 0 && p.cabSel < cabs.length)
             totalDb += cabs[p.cabSel][i] * p.cabBlend;
         if (p.speakerBlend !== 0 && p.speakerSel >= 0 && p.speakerSel < speakers.length)

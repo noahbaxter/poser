@@ -67,18 +67,27 @@ public:
         int curveMode;
         bool cabFilter;
         bool gainComp;
+        int micCurveMode;   // 0 = Character, 1 = Full
+        int swapMicSel;     // -1 = off, otherwise index into kMics/kMicsFull
         double sampleRate;
     };
 
     void updateResponse(const CurveParams& p)
     {
+        const auto& micCurves = p.micCurveMode == 1 ? ::CurveData::kMicsFull : ::CurveData::kMics;
+
         for (int i = 0; i < kComplexSize; ++i)
         {
             int cb = binMapping[i];
             float totalDb = 0.0f;
 
             if (p.micBlend != 0.0f && p.micSel >= 0 && p.micSel < ::CurveData::kNumMics)
-                totalDb += ::CurveData::kMics[p.micSel].data[cb] * p.micBlend;
+            {
+                totalDb += micCurves[p.micSel].data[cb] * p.micBlend;
+                // Swap mode: always fully subtract source mic (fixed -100%)
+                if (p.swapMicSel >= 0 && p.swapMicSel < ::CurveData::kNumMics)
+                    totalDb -= micCurves[p.swapMicSel].data[cb];
+            }
             if (p.cabBlend != 0.0f && p.cabSel >= 0 && p.cabSel < ::CurveData::kNumCabs)
                 totalDb += ::CurveData::kCabs[p.cabSel].data[cb] * p.cabBlend;
             if (p.speakerBlend != 0.0f && p.speakerSel >= 0 && p.speakerSel < ::CurveData::kNumSpeakers)
