@@ -10,26 +10,26 @@ In dB, this is additive:
 
     IR_dB(f) = Cab_dB(f) + Speaker_dB(f) + Mic_dB(f) + Position_dB(f)
 
-The IR decomposition pipeline (`tools/ir/extract_components.py`) isolates each by
-averaging across the other dimensions. For each component value, the "character" is
-what makes it different from the average of all values in that dimension.
+Each component can be isolated by averaging across the other dimensions in a
+multi-variable IR dataset. For each component value, the "character" is what
+makes it different from the average of all values in that dimension.
 
 ## Data Sources
 
 | Component | Source | Count | Full Range | Character Range |
 |-----------|--------|-------|------------|-----------------|
 | Mic | Published frequency response measurements | 27 (46 curves) | 4-23 dB ptp | 5-10 dB ptp |
-| Cab | IR decomposition | 4 | +/-0.5-2 dB | — |
-| Speaker | IR decomposition | 8 | +/-1-3 dB | — |
-| Position | IR decomposition | 13 | +/-2-5 dB | — |
+| Cab | IR analysis | 4 | +/-0.5-2 dB | — |
+| Speaker | IR analysis | 8 | +/-1-3 dB | — |
+| Position | IR analysis | 13 | +/-2-5 dB | — |
 
-Mic curves come from two sources: lab-measured CSVs from Audio Test Kitchen (SM57,
-SM58, SM7B, C414, U87) and digitized frequency response charts from RecordingHacks.
-ATK data takes priority when both exist. Manufacturer datasheets are stored in
-`data/datasheets/` for visual cross-reference (24 mics).
+Mic curves come from three sources: lab-measured CSVs from Audio Test Kitchen (SM57,
+SM58, SM7B, C414, D4, U87), manufacturer datasheets (24 mics), and digitized frequency
+response charts from RecordingHacks. ATK data takes priority when all exist. Data is
+organized by source in `data/curves/{datasheet,recordinghacks,atk}/`.
 
-Cab, speaker, and position curves come from decomposing a multi-variable IR
-collection across many cab/speaker/mic/position combos. These use character
+Cab, speaker, and position curves come from decomposing multi-variable IR
+data across many cab/speaker/mic/position combos. These use character
 extraction only (no full mode) since they're already relative measurements.
 
 ## Mic Curve Modes

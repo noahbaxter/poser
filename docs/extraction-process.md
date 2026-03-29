@@ -12,7 +12,7 @@ All curve data lives in `data/`. The build step compiles everything into `src/Cu
 
 ### Adding a mic from Audio Test Kitchen (CSV)
 
-1. Place the CSV in `data/curves/atk/` with format `frequency,dB` (one pair per line)
+1. Place the CSV in `data/curves/atk/originals/{slug}.csv` with format `frequency,dB` (one pair per line)
 2. Add the entry in `tools/curves/registry.py` (`MICS` dict)
 3. Run the build:
 ```bash
@@ -41,7 +41,7 @@ python3 tools/curves/digitize.py --image /path/to/chart.png
 python3 tools/curves/compare.py
 ```
 
-4. The digitized JSON is saved to `data/curves/digitized/`. To include it in the plugin, add the mic to `tools/curves/registry.py` and rebuild:
+4. The digitized JSON is saved to the source-specific `curves/` directory (e.g., `datasheet/curves/`). To include it in the plugin, add the mic to `tools/curves/registry.py` and rebuild:
 ```bash
 python3 tools/curves/manage.py build
 ```
@@ -84,8 +84,8 @@ python3 tools/curves/manage.py build    # → extracted_components.json → Curv
 
 | Location | Description |
 |----------|-------------|
-| `data/curves/atk/*.csv` | Audio Test Kitchen measured responses |
-| `data/curves/digitized/*.json` | Curves digitized from chart images |
-| `data/curves/extracted_components.json` | Compiled curve data (all sources) |
+| `data/curves/atk/originals/*.csv` | Audio Test Kitchen measured responses |
+| `data/curves/{source}/curves/*.json` | Curves digitized from each source |
+| `data/curves/compiled/extracted_components.json` | Compiled curve data (all sources) |
 | `src/CurveData.h` | Auto-generated C++ header (don't edit manually) |
 | `/tmp/poser/` | Ephemeral images/plots (not committed) |

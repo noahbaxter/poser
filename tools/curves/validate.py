@@ -16,9 +16,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths
 from registry import MICS
-
-REPO = Path(__file__).resolve().parent.parent.parent
 TMP = Path("/tmp/poser")
 
 BANDS = [
@@ -34,8 +33,8 @@ def normalize_at_1k(freqs, dbs):
     return dbs - db_at_1k
 
 
-def load_atk(csv_name):
-    path = REPO / "data" / "curves" / "atk" / csv_name
+def load_atk(slug):
+    path = paths.atk_original(slug)
     if not path.exists():
         return None
     freqs, dbs = [], []
@@ -47,8 +46,8 @@ def load_atk(csv_name):
 
 
 def load_digitized(slug):
-    path = REPO / "data" / "curves" / "digitized" / f"{slug}.json"
-    if not path.exists():
+    path = paths.find_curve(slug)
+    if path is None or not path.exists():
         return None
     with open(path) as f:
         d = json.load(f)
@@ -76,7 +75,7 @@ def rms_between(f1, db1, f2, db2, lo=20, hi=20000):
 def main():
     TMP.mkdir(parents=True, exist_ok=True)
 
-    atk_mics = [(slug, info) for slug, info in sorted(MICS.items()) if info.get("atk_csv")]
+    atk_mics = [(slug, info) for slug, info in sorted(MICS.items()) if info.get("has_atk")]
     fig, axes = plt.subplots(1, len(atk_mics), figsize=(4 * len(atk_mics), 4))
 
     print(f"{'Mic':<8} {'RMS':>6} {'Low':>6} {'Mid':>6} {'UMid':>6} {'High':>6}")
@@ -86,7 +85,7 @@ def main():
         ax = axes[i]
         name = info["name"]
 
-        atk = load_atk(info["atk_csv"])
+        atk = load_atk(slug)
         dig = load_digitized(slug)
 
         if atk is None or dig is None:

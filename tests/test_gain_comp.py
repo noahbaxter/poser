@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-REPO = Path(__file__).resolve().parent.parent.parent
+REPO = Path(__file__).resolve().parent.parent
 
 # Match EqProcessor.h exactly
 FFT_SIZE = 1024
@@ -247,7 +247,7 @@ def test_combinations(data, bin_mapping):
 
 
 def main():
-    with open(REPO / "data" / "curves" / "extracted_components.json") as f:
+    with open(REPO / "data" / "curves" / "compiled" / "extracted_components.json") as f:
         data = json.load(f)
 
     freqs = data["frequencies_hz"]

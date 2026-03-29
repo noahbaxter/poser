@@ -8,17 +8,11 @@ Internal module used by manage.py. Not meant to be run directly.
 import csv
 import json
 import re
-from pathlib import Path
 
 import numpy as np
 
+import paths
 from registry import MICS, MIC_GROUPS
-
-REPO = Path(__file__).resolve().parent.parent.parent
-ATK_DIR = REPO / "data" / "curves" / "atk"
-DIGITIZED_DIR = REPO / "data" / "curves" / "digitized"
-COMPONENTS_JSON = REPO / "data" / "curves" / "extracted_components.json"
-HEADER_OUTPUT = REPO / "src" / "CurveData.h"
 
 FLOATS_PER_LINE = 12
 TARGET_PEAK_DB = 6.0
@@ -51,8 +45,8 @@ def load_atk_csv(path):
 
 def count_digitized_curves(slug):
     """Returns how many curves exist in the digitized JSON."""
-    path = DIGITIZED_DIR / f"{slug}.json"
-    if not path.exists():
+    path = paths.find_curve(slug)
+    if path is None:
         return 0
     with open(path) as f:
         d = json.load(f)
@@ -64,8 +58,8 @@ def count_digitized_curves(slug):
 
 def load_digitized(slug, curve_index=0):
     """Returns (freqs, dbs) or (None, None)."""
-    path = DIGITIZED_DIR / f"{slug}.json"
-    if not path.exists():
+    path = paths.find_curve(slug)
+    if path is None:
         return None, None
     with open(path) as f:
         d = json.load(f)
@@ -147,7 +141,7 @@ def build_components():
     all variants are included. The average mic shape is computed from primary curves
     only (ATK or digitized[0]), then applied to all variants.
     """
-    with open(COMPONENTS_JSON) as f:
+    with open(paths.COMPONENTS_JSON) as f:
         data = json.load(f)
 
     target_freqs = np.array(data["frequencies_hz"])
@@ -162,13 +156,13 @@ def build_components():
     for slug in sorted(MICS):
         info = MICS[slug]
         display_name = info["name"]
-        atk_csv = info.get("atk_csv")
+        has_atk = info.get("has_atk")
         n_digitized = count_digitized_curves(slug)
 
         variants = []
 
-        if atk_csv:
-            csv_path = ATK_DIR / atk_csv
+        if has_atk:
+            csv_path = paths.atk_original(slug)
             if not csv_path.exists():
                 print(f"  SKIP {display_name}: {csv_path} not found")
                 continue
@@ -241,12 +235,12 @@ def build_components():
     old_mic_count = len(data["components"].get("mic", {}))
     data["components"]["mic"] = new_mics
 
-    with open(COMPONENTS_JSON, "w") as f:
+    with open(paths.COMPONENTS_JSON, "w") as f:
         json.dump(data, f, indent=2)
 
     total_variants = sum(len(m["variants"]) for m in new_mics.values())
     print(f"Replaced {old_mic_count} mics with {len(new_mics)} ({total_variants} total curves)")
-    print(f"Wrote {COMPONENTS_JSON}")
+    print(f"Wrote {paths.COMPONENTS_JSON}")
 
 
 # --- Generate CurveData.h ---
@@ -289,7 +283,7 @@ def format_float_array(values):
 
 def generate_header():
     """Generate src/CurveData.h from extracted_components.json."""
-    with open(COMPONENTS_JSON) as f:
+    with open(paths.COMPONENTS_JSON) as f:
         data = json.load(f)
 
     freqs = data["frequencies_hz"]
@@ -599,6 +593,6 @@ def generate_header():
     out.append("} // namespace CurveData")
     out.append("")
 
-    HEADER_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    HEADER_OUTPUT.write_text("\n".join(out))
-    print(f"Wrote {HEADER_OUTPUT}")
+    paths.HEADER_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    paths.HEADER_OUTPUT.write_text("\n".join(out))
+    print(f"Wrote {paths.HEADER_OUTPUT}")

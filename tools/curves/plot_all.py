@@ -6,13 +6,16 @@ Does NOT re-digitize — just re-plots from saved data.
 """
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "curves" / "digitized"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths
+
 TMP_DIR = Path("/tmp/poser")
 
 
@@ -80,7 +83,11 @@ def plot_one(json_path):
 
 def main():
     TMP_DIR.mkdir(parents=True, exist_ok=True)
-    jsons = sorted(DATA_DIR.glob("*.json"))
+    jsons = sorted(
+        list(paths.DATASHEET_CURVES.glob("*.json")) +
+        list(paths.RH_CURVES.glob("*.json")) +
+        list(paths.ATK_CURVES.glob("*.json"))
+    )
     print(f"Plotting {len(jsons)} files...\n")
     for j in jsons:
         print(f"{j.stem}:")

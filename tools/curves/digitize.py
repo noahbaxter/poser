@@ -13,6 +13,7 @@ import numpy as np
 import requests
 from PIL import Image
 
+import paths
 from registry import MICS
 
 
@@ -167,6 +168,128 @@ def _cluster_ys(ys, gap=8):
     return clusters
 
 
+# --- Shared path tracking ---
+
+def _track_paths(col_centers, plot_w, match_dist=10, max_gap=8, min_span_frac=0.20):
+    """Multi-object tracker: follow curve lines across columns.
+
+    col_centers: dict {x_pixel: [list of y-center values]}
+    plot_w: plot width in pixels (for min span filtering)
+
+    Returns list of paths, each a list of (x, y) tuples, sorted by span descending.
+    """
+    x_values = sorted(col_centers.keys())
+    if not x_values:
+        return []
+
+    active = []
+    for x in x_values:
+        centers = col_centers[x]
+        candidates = []
+        for ci, cy in enumerate(centers):
+            for pi, (last_y, _, gap) in enumerate(active):
+                if gap > max_gap:
+                    continue
+                candidates.append((abs(cy - last_y), ci, pi))
+        candidates.sort()
+
+        matched_paths = set()
+        matched_centers = set()
+        for dist, ci, pi in candidates:
+            if ci in matched_centers or pi in matched_paths:
+                continue
+            if dist <= match_dist:
+                _, pts, _ = active[pi]
+                pts.append((x, centers[ci]))
+                active[pi] = (centers[ci], pts, 0)
+                matched_paths.add(pi)
+                matched_centers.add(ci)
+
+        for ci, cy in enumerate(centers):
+            if ci not in matched_centers:
+                active.append((cy, [(x, cy)], 0))
+
+        for pi in range(len(active)):
+            if pi not in matched_paths:
+                last_y, pts, gap = active[pi]
+                active[pi] = (last_y, pts, gap + 1)
+
+    # Filter paths by minimum span and point count
+    min_span = plot_w * min_span_frac
+    paths = []
+    for _, pts, _ in active:
+        if len(pts) < 10:
+            continue
+        span = pts[-1][0] - pts[0][0]
+        if span >= min_span:
+            paths.append(pts)
+
+    # Sort by span descending (widest first)
+    paths.sort(key=lambda p: -(p[-1][0] - p[0][0]))
+    return paths
+
+
+def _deduplicate_paths(paths):
+    """Remove near-duplicate paths (avg y-diff < 3px at sampled points)."""
+    unique = []
+    for path in paths:
+        is_dup = False
+        for existing in unique:
+            ex_dict = dict(existing)
+            diffs = []
+            for x, y in path[::max(1, len(path) // 10)]:
+                if x in ex_dict:
+                    diffs.append(abs(y - ex_dict[x]))
+            if len(diffs) >= 3 and sum(diffs) / len(diffs) < 3:
+                is_dup = True
+                break
+        if not is_dup:
+            unique.append(path)
+    return unique
+
+
+def _complete_fragments(paths):
+    """Splice fragment curves onto the main (widest) curve.
+
+    Many mic charts show multiple response variants (proximity effect, bass
+    switches) that share the same high-frequency response but diverge in the
+    bass. The tracker follows each line through the split region, but when
+    lines merge back, secondary paths die. We splice the main curve's data
+    onto fragments to produce complete full-range curves.
+    """
+    if len(paths) <= 1:
+        return paths
+
+    main = paths[0]  # widest span (sorted by -span earlier)
+    main_dict = dict(main)
+    main_x_min = main[0][0]
+    main_x_max = main[-1][0]
+    main_span = main_x_max - main_x_min
+    completed = [main]
+
+    for frag in paths[1:]:
+        frag_x_min = frag[0][0]
+        frag_x_max = frag[-1][0]
+        frag_span = frag_x_max - frag_x_min
+        if frag_span >= main_span * 0.8:
+            # Already near-full range, keep as-is
+            completed.append(frag)
+            continue
+        # Splice: use fragment data where it exists, main curve elsewhere
+        frag_dict = dict(frag)
+        merged = []
+        for x, y in main:
+            if frag_x_min <= x <= frag_x_max:
+                if x in frag_dict:
+                    merged.append((x, frag_dict[x]))
+            else:
+                merged.append((x, y))
+        completed.append(merged)
+        print(f"  Completed fragment ({frag_span:.0f}px) → full range using main curve")
+
+    return completed
+
+
 # --- Data conversion ---
 
 def pixels_to_data(points, A, B, top, bottom):
@@ -209,43 +332,66 @@ def filter_continuity(data, max_jump_db=4.0, window=5):
     return [(round(f, 2), round(d, 2)) for f, d in filtered]
 
 
-def resample_log(data, num_points=256):
-    """Resample onto a uniform log-frequency grid."""
+def resample_log(data, num_points=256, smooth=True):
+    """Resample onto a uniform log-frequency grid, with optional smoothing.
+
+    Smoothing removes pixel-level stairstepping from mask digitization
+    without losing real curve features. Uses a gentle moving average.
+    """
     if len(data) < 2:
         return data
     freqs = np.array([d[0] for d in data])
     dbs = np.array([d[1] for d in data])
     grid = np.logspace(np.log10(freqs[0]), np.log10(freqs[-1]), num_points)
     grid_db = np.interp(grid, freqs, dbs)
+
+    if smooth and num_points >= 20:
+        # Gentle smoothing: 5-point moving average, applied twice.
+        # Preserves shape but removes quantization staircase.
+        kernel = np.ones(5) / 5
+        for _ in range(2):
+            padded = np.pad(grid_db, 2, mode='edge')
+            grid_db = np.convolve(padded, kernel, mode='valid')[:num_points]
+
     return [(round(f, 2), round(d, 2)) for f, d in zip(grid, grid_db)]
 
 
 # --- Comparison plot ---
 
-def make_comparison_plot(source_img_path, curves, out_path, mic_ids):
-    """Generate side-by-side: original image (top) + all digitized curves (bottom)."""
+def make_comparison_plot(source_img_path, curves, out_path, mic_ids, plot_crop=None):
+    """Generate side-by-side: original image (top) + all digitized curves (bottom).
+
+    plot_crop: optional [left, top, right, bottom] pixel coords to crop source image.
+               If None, auto-detects plot bounds from dark border lines.
+    """
     src = Image.open(source_img_path)
 
     fig, (ax_orig, ax_dig) = plt.subplots(2, 1, figsize=(12, 6),
                                            gridspec_kw={"height_ratios": [1, 1]})
 
-    # Top: original image cropped to plot area only
+    # Top: original image cropped to plot area
     src_rgb = np.array(src.convert("RGB"))
-    # Detect plot bounds from the image
-    gray = np.mean(src_rgb, axis=2)
-    h_img, w_img = gray.shape
-    h_lines = [y for y in range(h_img) if np.sum(gray[y, :] < 40) > w_img * 0.6]
-    v_lines = [x for x in range(w_img) if np.sum(gray[:, x] < 40) > h_img * 0.6]
-    if len(h_lines) >= 2 and len(v_lines) >= 2:
-        top_c = min(h_lines)
-        bot_c = max(h_lines)
-        left_c = min(v_lines)
-        right_c = max(v_lines)
+    if plot_crop:
+        left_c, top_c, right_c, bot_c = plot_crop
         cropped = src_rgb[top_c:bot_c, left_c:right_c]
     else:
-        cropped = src_rgb
+        # Auto-detect from dark border lines
+        gray = np.mean(src_rgb, axis=2)
+        h_img, w_img = gray.shape
+        h_lines = [y for y in range(h_img) if np.sum(gray[y, :] < 40) > w_img * 0.6]
+        v_lines = [x for x in range(w_img) if np.sum(gray[:, x] < 40) > h_img * 0.6]
+        if len(h_lines) >= 2 and len(v_lines) >= 2:
+            top_c = min(h_lines)
+            bot_c = max(h_lines)
+            left_c = min(v_lines)
+            right_c = max(v_lines)
+            cropped = src_rgb[top_c:bot_c, left_c:right_c]
+        else:
+            cropped = src_rgb
+    is_datasheet = plot_crop is not None
     ax_orig.imshow(cropped, aspect="auto")
-    ax_orig.set_title("Original (RecordingHacks)", fontsize=11)
+    ax_orig.set_title("Original (Datasheet)" if is_datasheet else "Original (RecordingHacks)",
+                      fontsize=11)
     ax_orig.set_xticks([])
     ax_orig.set_yticks([])
 
@@ -400,107 +546,10 @@ def digitize_single(image_path):
     max_clusters = max(len(col_centers[x]) for x in x_values)
     print(f"  Columns with data: {len(x_values)}, max simultaneous lines: {max_clusters}")
 
-    # Multi-object tracking
-    active = []
-    MATCH_DIST = 10  # tighter for smaller images
-    MAX_GAP = 8
-
-    for x in x_values:
-        centers = col_centers[x]
-        candidates = []
-        for ci, cy in enumerate(centers):
-            for pi, (last_y, _, gap) in enumerate(active):
-                if gap > MAX_GAP:
-                    continue
-                candidates.append((abs(cy - last_y), ci, pi))
-        candidates.sort()
-
-        matched_paths = set()
-        matched_centers = set()
-        for dist, ci, pi in candidates:
-            if ci in matched_centers or pi in matched_paths:
-                continue
-            if dist <= MATCH_DIST:
-                _, pts, _ = active[pi]
-                pts.append((x, centers[ci]))
-                active[pi] = (centers[ci], pts, 0)
-                matched_paths.add(pi)
-                matched_centers.add(ci)
-
-        for ci, cy in enumerate(centers):
-            if ci not in matched_centers:
-                active.append((cy, [(x, cy)], 0))
-
-        for pi in range(len(active)):
-            if pi not in matched_paths:
-                last_y, pts, gap = active[pi]
-                active[pi] = (last_y, pts, gap + 1)
-
-    # Filter paths
-    min_span = plot_w * 0.20
-    paths = []
-    for _, pts, _ in active:
-        if len(pts) < 10:
-            continue
-        span = pts[-1][0] - pts[0][0]
-        if span >= min_span:
-            paths.append(pts)
-
-    # Deduplicate
-    paths.sort(key=lambda p: -(p[-1][0] - p[0][0]))
-    unique = []
-    for path in paths:
-        is_dup = False
-        for existing in unique:
-            ex_dict = dict(existing)
-            diffs = []
-            for x, y in path[::max(1, len(path) // 10)]:
-                if x in ex_dict:
-                    diffs.append(abs(y - ex_dict[x]))
-            if len(diffs) >= 3 and sum(diffs) / len(diffs) < 3:
-                is_dup = True
-                break
-        if not is_dup:
-            unique.append(path)
-
+    paths = _track_paths(col_centers, plot_w)
+    unique = _deduplicate_paths(paths)
     print(f"  Tracked {len(unique)} path(s)")
-
-    # Complete fragment curves using the main (widest) curve.
-    # Many mic charts show multiple response variants (proximity effect, bass
-    # switches) that share the same high-frequency response but diverge in the
-    # bass. The tracker follows each line through the split region, but when
-    # lines merge back, secondary paths die. We splice the main curve's data
-    # onto fragments to produce complete full-range curves.
-    if len(unique) > 1:
-        main = unique[0]  # widest span (sorted by -span earlier)
-        main_dict = dict(main)
-        main_x_min = main[0][0]
-        main_x_max = main[-1][0]
-        completed = [main]
-        for frag in unique[1:]:
-            frag_x_min = frag[0][0]
-            frag_x_max = frag[-1][0]
-            frag_span = frag_x_max - frag_x_min
-            main_span = main_x_max - main_x_min
-            if frag_span >= main_span * 0.8:
-                # Already near-full range, keep as-is
-                completed.append(frag)
-                continue
-            # Splice: use fragment data where it exists, main curve elsewhere
-            frag_dict = dict(frag)
-            merged = []
-            for x, y in main:
-                if frag_x_min <= x <= frag_x_max:
-                    # Use fragment's value in its range
-                    if x in frag_dict:
-                        merged.append((x, frag_dict[x]))
-                else:
-                    # Outside fragment range, use main curve
-                    merged.append((x, y))
-            # Smooth the splice points (average over a few pixels at boundaries)
-            completed.append(merged)
-            print(f"  Completed fragment ({frag_span:.0f}px) → full range using main curve")
-        unique = completed
+    unique = _complete_fragments(unique)
 
     # Convert to freq/dB
     curves = []
@@ -623,8 +672,9 @@ def _digitize_mask(mask_path, slug, cal_dir):
     """Digitize a cleaned mask PNG using saved calibration.
 
     The mask is a white image with red pixels only — same dimensions as the
-    original plot area. Calibration (A, B, bounds) comes from the JSON saved
-    alongside the original mask export.
+    original plot area. Supports two calibration formats:
+      - RH-style: {A, B, left, right, top, bottom}
+      - Datasheet-style: {plot_bounds, freq_range, db_range, source: "datasheet"}
     """
     cal_path = cal_dir / f"{slug}.json"
     if not cal_path.exists():
@@ -634,9 +684,18 @@ def _digitize_mask(mask_path, slug, cal_dir):
 
     with open(cal_path) as f:
         cal = json.load(f)
-    A, B = cal["A"], cal["B"]
-    left, right = cal["left"], cal["right"]
-    top, bottom = cal["top"], cal["bottom"]
+
+    # Detect calibration format
+    is_datasheet = cal.get("source") == "datasheet"
+
+    if is_datasheet:
+        left, top, right, bottom = cal["plot_bounds"]
+        freq_lo, freq_hi = cal["freq_range"]
+        cal_db_top, cal_db_bottom = cal["db_range"]
+    else:
+        A, B = cal["A"], cal["B"]
+        left, right = cal["left"], cal["right"]
+        top, bottom = cal["top"], cal["bottom"]
 
     img = Image.open(mask_path).convert("RGB")
     px = img.load()
@@ -668,76 +727,22 @@ def _digitize_mask(mask_path, slug, cal_dir):
         print("  WARNING: No red pixels found in mask")
         return {}
 
-    # Multi-object tracking (same params as single mode)
-    active = []
-    MATCH_DIST = 10
-    MAX_GAP = 8
-
-    for x in x_values:
-        centers = col_centers[x]
-        candidates = []
-        for ci, cy in enumerate(centers):
-            for pi, (last_y, _, gap) in enumerate(active):
-                if gap > MAX_GAP:
-                    continue
-                candidates.append((abs(cy - last_y), ci, pi))
-        candidates.sort()
-
-        matched_paths = set()
-        matched_centers = set()
-        for dist, ci, pi in candidates:
-            if ci in matched_centers or pi in matched_paths:
-                continue
-            if dist <= MATCH_DIST:
-                _, pts, _ = active[pi]
-                pts.append((x, centers[ci]))
-                active[pi] = (centers[ci], pts, 0)
-                matched_paths.add(pi)
-                matched_centers.add(ci)
-
-        for ci, cy in enumerate(centers):
-            if ci not in matched_centers:
-                active.append((cy, [(x, cy)], 0))
-
-        for pi in range(len(active)):
-            if pi not in matched_paths:
-                last_y, pts, gap = active[pi]
-                active[pi] = (last_y, pts, gap + 1)
-
-    # Filter paths
     plot_w = right - left
-    min_span = plot_w * 0.20
-    paths = []
-    for _, pts, _ in active:
-        if len(pts) < 10:
-            continue
-        span = pts[-1][0] - pts[0][0]
-        if span >= min_span:
-            paths.append(pts)
-
-    # Deduplicate
-    paths.sort(key=lambda p: -(p[-1][0] - p[0][0]))
-    unique = []
-    for path in paths:
-        is_dup = False
-        for existing in unique:
-            ex_dict = dict(existing)
-            diffs = []
-            for x, y in path[::max(1, len(path) // 10)]:
-                if x in ex_dict:
-                    diffs.append(abs(y - ex_dict[x]))
-            if len(diffs) >= 3 and sum(diffs) / len(diffs) < 3:
-                is_dup = True
-                break
-        if not is_dup:
-            unique.append(path)
-
+    paths = _track_paths(col_centers, plot_w)
+    unique = _deduplicate_paths(paths)
     print(f"  Tracked {len(unique)} path(s)")
 
     # Convert to freq/dB
     curves = []
     for i, raw_path in enumerate(unique):
-        data = pixels_to_data(raw_path, A, B, top, bottom)
+        if is_datasheet:
+            data = []
+            for x, y in raw_path:
+                freq = _pixel_to_freq_ds(x, left, right, freq_lo, freq_hi)
+                db = _pixel_to_db_ds(y, top, bottom, cal_db_top, cal_db_bottom)
+                data.append((round(freq, 2), round(db, 2)))
+        else:
+            data = pixels_to_data(raw_path, A, B, top, bottom)
         data = filter_continuity(data)
         if data:
             freqs = [d[0] for d in data]
@@ -750,6 +755,360 @@ def _digitize_mask(mask_path, slug, cal_dir):
         "single": {
             "raw_paths": len(unique),
             "curves": curves,
+        }
+    }
+
+
+# --- Datasheet digitization ---
+
+COLOR_PRESETS = {
+    "black": lambda r, g, b: r < 80 and g < 80 and b < 80,
+    "blue":  lambda r, g, b: b > 100 and b - r > 20 and b - g > 20,
+    "red":   lambda r, g, b: r > 100 and r - g > 20 and r - b > 20,
+}
+
+
+def _pixel_to_freq_ds(x, left, right, freq_lo, freq_hi):
+    """Log-frequency mapping from pixel x using config bounds."""
+    t = (x - left) / (right - left)
+    return freq_lo * (freq_hi / freq_lo) ** t
+
+
+def _pixel_to_db_ds(y, top, bottom, db_top, db_bottom):
+    """Linear dB mapping from pixel y using config bounds."""
+    t = (y - top) / (bottom - top)
+    return db_top + t * (db_bottom - db_top)
+
+
+def _classify_line_style(path):
+    """Classify a tracked path as solid or dashed by gap density.
+
+    Returns gap_ratio: solid < 0.1, dashed > 0.2.
+    """
+    if len(path) < 2:
+        return 0.0
+    xs = [p[0] for p in path]
+    total_span = xs[-1] - xs[0]
+    if total_span == 0:
+        return 0.0
+    # Count columns where the path has no point
+    x_set = set(xs)
+    gaps = sum(1 for x in range(xs[0], xs[-1] + 1) if x not in x_set)
+    return gaps / total_span
+
+
+def digitize_datasheet(slug, ds_config, datasheets_dir):
+    """Digitize a manufacturer datasheet PNG using explicit config.
+
+    ds_config fields:
+        color:       "black" | "blue" | "red"
+        plot_bounds: [left, top, right, bottom] pixel coords
+        freq_range:  [freq_lo_hz, freq_hi_hz]
+        db_range:    [db_top, db_bottom]
+        curves:      optional list of {label, line_style} for multi-curve
+        min_thickness: optional int, min cluster height to keep (default 2 for black)
+
+    Returns dict with same structure as digitize_single().
+    """
+    ds_path = datasheets_dir / f"{slug}.png"
+    print(f"\nDigitizing datasheet: {ds_path}")
+
+    img = Image.open(ds_path).convert("RGB")
+    w, h = img.size
+    px = img.load()
+
+    left, top, right, bottom = ds_config["plot_bounds"]
+    freq_lo, freq_hi = ds_config["freq_range"]
+    db_top, db_bottom = ds_config["db_range"]
+    color_name = ds_config["color"]
+    print(f"  Image: {w}x{h}, plot: [{left},{top}]-[{right},{bottom}]")
+    print(f"  Axes: {freq_lo}-{freq_hi}Hz, {db_top} to {db_bottom}dB")
+
+    # Color test function
+    if isinstance(color_name, dict):
+        r_lo, r_hi = color_name["r"]
+        g_lo, g_hi = color_name["g"]
+        b_lo, b_hi = color_name["b"]
+        is_curve = lambda r, g, b: r_lo <= r <= r_hi and g_lo <= g <= g_hi and b_lo <= b <= b_hi
+    else:
+        is_curve = COLOR_PRESETS[color_name]
+
+    # For black curves on black grids, require minimum cluster thickness
+    min_thickness = ds_config.get("min_thickness", 2 if color_name == "black" else 1)
+
+    plot_w = right - left
+    plot_h = bottom - top
+
+    # Build pixel mask
+    mask = np.zeros((plot_h, plot_w), dtype=bool)
+    for r in range(plot_h):
+        for c in range(plot_w):
+            red_v, g_v, b_v = px[c + left, r + top]
+            if is_curve(red_v, g_v, b_v):
+                mask[r, c] = True
+
+    total_px = int(np.sum(mask))
+    print(f"  Color-matched pixels: {total_px}")
+
+    # For black curves: surgically erase gridline pixels from the mask.
+    # Strategy: detect continuous horizontal/vertical runs that span a large
+    # fraction of the plot — these are gridlines. Erase those runs. The curve
+    # pixels at gridline intersections get erased too, but the tracker bridges
+    # the small gaps (MAX_GAP=8 handles 1-3px gridline thickness easily).
+    if color_name == "black":
+        # Horizontal gridlines: find rows where a single continuous run of
+        # black pixels spans > 60% of plot width
+        h_run_threshold = plot_w * 0.6
+        grid_rows = set()
+        for r in range(plot_h):
+            # Find longest continuous run in this row
+            run_len = 0
+            max_run = 0
+            for c in range(plot_w):
+                if mask[r, c]:
+                    run_len += 1
+                    max_run = max(max_run, run_len)
+                else:
+                    run_len = 0
+            if max_run > h_run_threshold:
+                grid_rows.add(r)
+
+        # Vertical gridlines: columns where a single continuous run spans > 60% of height
+        v_run_threshold = plot_h * 0.6
+        grid_cols = set()
+        for c in range(plot_w):
+            run_len = 0
+            max_run = 0
+            for r in range(plot_h):
+                if mask[r, c]:
+                    run_len += 1
+                    max_run = max(max_run, run_len)
+                else:
+                    run_len = 0
+            if max_run > v_run_threshold:
+                grid_cols.add(c)
+
+        # Erase gridline pixels
+        erased = 0
+        for r in grid_rows:
+            erased += int(np.sum(mask[r, :]))
+            mask[r, :] = False
+        for c in grid_cols:
+            erased += int(np.sum(mask[:, c]))
+            mask[:, c] = False
+
+        if grid_rows or grid_cols:
+            print(f"  Erased {len(grid_rows)} grid rows, {len(grid_cols)} grid cols "
+                  f"({erased} pixels)")
+
+    # Build per-column cluster centers
+    col_centers = {}
+    for c in range(plot_w):
+        ys = [r + top for r in range(plot_h) if mask[r, c]]
+        if ys:
+            clusters = _cluster_ys(ys, gap=5)
+            thick = [cl for cl in clusters if len(cl) >= min_thickness]
+            if thick:
+                col_centers[c + left] = [sum(cl) / len(cl) for cl in thick]
+
+    if not col_centers:
+        print("  WARNING: No curve pixels found")
+        return {}
+
+    x_values = sorted(col_centers.keys())
+    max_clusters = max(len(col_centers[x]) for x in x_values)
+    print(f"  Columns with data: {len(x_values)}, max simultaneous lines: {max_clusters}")
+
+    # Track, deduplicate, complete fragments
+    paths = _track_paths(col_centers, plot_w)
+    unique = _deduplicate_paths(paths)
+    print(f"  Tracked {len(unique)} path(s)")
+
+    # Filter out gridlines: real curves have significant dB variation,
+    # horizontal gridlines are nearly flat. Convert to dB first, then filter.
+    min_db_range = ds_config.get("min_db_range", 2.0)
+    non_flat = []
+    for path in unique:
+        ys = [_pixel_to_db_ds(y, top, bottom, db_top, db_bottom) for _, y in path]
+        db_range = max(ys) - min(ys)
+        if db_range >= min_db_range:
+            non_flat.append(path)
+        else:
+            print(f"  Filtered gridline ({db_range:.1f}dB range)")
+    if non_flat:
+        unique = non_flat
+        print(f"  After gridline filter: {len(unique)} path(s)")
+
+    unique = _complete_fragments(unique)
+
+    # Solid/dashed classification
+    curve_configs = ds_config.get("curves")
+    if curve_configs and len(unique) > 1:
+        # Classify each path
+        styles = [(i, _classify_line_style(p)) for i, p in enumerate(unique)]
+        solid = sorted([(i, gr) for i, gr in styles if gr < 0.15], key=lambda x: x[1])
+        dashed = sorted([(i, gr) for i, gr in styles if gr >= 0.15], key=lambda x: x[1])
+
+        # Reorder to match config: solid first, then dashed
+        ordered = []
+        solid_idx = 0
+        dashed_idx = 0
+        for cc in curve_configs:
+            style = cc.get("line_style", "solid")
+            if style == "solid" and solid_idx < len(solid):
+                ordered.append(unique[solid[solid_idx][0]])
+                solid_idx += 1
+            elif style == "dashed" and dashed_idx < len(dashed):
+                ordered.append(unique[dashed[dashed_idx][0]])
+                dashed_idx += 1
+            elif unique:
+                # Fallback: take next available
+                ordered.append(unique[0])
+                unique = unique[1:]
+        unique = ordered
+
+    # Convert to freq/dB using config-driven mapping
+    curves = []
+    for i, raw_path in enumerate(unique):
+        data = []
+        for x, y in raw_path:
+            freq = _pixel_to_freq_ds(x, left, right, freq_lo, freq_hi)
+            db = _pixel_to_db_ds(y, top, bottom, db_top, db_bottom)
+            data.append((round(freq, 2), round(db, 2)))
+        data = filter_continuity(data)
+        if data:
+            freqs = [d[0] for d in data]
+            dbs = [d[1] for d in data]
+            print(f"  Curve {i}: {len(data)} pts, {min(freqs):.0f}-{max(freqs):.0f}Hz, "
+                  f"{min(dbs):.1f} to {max(dbs):.1f}dB")
+            curves.append(data)
+
+    return {
+        "single": {
+            "raw_paths": len(unique),
+            "curves": curves,
+        }
+    }
+
+
+# --- Guide-assisted digitization ---
+
+
+def digitize_guided(slug, ds_config, guide_data, datasheets_dir, corridor_db=4.0):
+    """Digitize a datasheet using a human-traced guide.
+
+    Strategy depends on curve color:
+    - Black curves: use the guide trace directly (pixel refinement is unreliable
+      when curve and grid are the same color — human eyes beat pixel matching).
+    - Colored curves (blue, red): use guide as a corridor to find actual curve
+      pixels, since color separation from the grid is clean.
+
+    The guide trace alone is typically within ~1dB of lab measurements, which
+    is within the variance between mic specimens anyway.
+    """
+    ds_path = datasheets_dir / f"{slug}.png"
+    print(f"\nDigitizing (guided): {ds_path}")
+
+    # Guide JSON may override axis config (user-confirmed values take priority)
+    left, top, right, bottom = guide_data.get("plot_bounds", ds_config["plot_bounds"])
+    freq_lo, freq_hi = guide_data.get("freq_range", ds_config["freq_range"])
+    db_top, db_bottom = guide_data.get("db_range", ds_config["db_range"])
+    color_name = guide_data.get("color", ds_config["color"])
+    plot_w = right - left
+    plot_h = bottom - top
+
+    use_pixels = color_name not in ("black",)
+    if use_pixels:
+        print(f"  Color '{color_name}' — using pixel refinement within ±{corridor_db}dB corridor")
+        img = Image.open(ds_path).convert("RGB")
+        px = img.load()
+        db_range = abs(db_top - db_bottom)
+        corridor_px = int(corridor_db / db_range * plot_h)
+
+        if isinstance(color_name, dict):
+            r_lo, r_hi = color_name["r"]
+            g_lo, g_hi = color_name["g"]
+            b_lo, b_hi = color_name["b"]
+            is_curve = lambda r, g, b: r_lo <= r <= r_hi and g_lo <= g <= g_hi and b_lo <= b <= b_hi
+        else:
+            is_curve = COLOR_PRESETS[color_name]
+    else:
+        print(f"  Color '{color_name}' — using guide trace directly (no pixel refinement)")
+
+    all_curves = []
+
+    for gi, guide_curve in enumerate(guide_data["curves"]):
+        guide_pts = guide_curve["points"]  # [[hz, db], ...]
+        label = guide_curve.get("label", f"curve_{gi}")
+        print(f"  Guide curve {gi} ({label}): {len(guide_pts)} guide points")
+
+        # Guide points are already in freq/dB — just resample
+        g_freqs = [p[0] for p in guide_pts]
+        g_dbs = [p[1] for p in guide_pts]
+
+        if not use_pixels:
+            # Black curve: guide trace IS the data. Just resample.
+            data = [(round(f, 2), round(d, 2)) for f, d in zip(g_freqs, g_dbs)]
+            data = resample_log(data, num_points=256)
+
+        else:
+            # Colored curve: refine guide with pixel data from corridor search.
+            # Convert guide to pixel coords for corridor search
+            guide_px_x = []
+            guide_px_y = []
+            for hz, db in guide_pts:
+                t_x = math.log10(hz / freq_lo) / math.log10(freq_hi / freq_lo)
+                guide_px_x.append(left + t_x * plot_w)
+                t_y = (db - db_top) / (db_bottom - db_top)
+                guide_px_y.append(top + t_y * plot_h)
+
+            guide_px_x = np.array(guide_px_x)
+            guide_px_y = np.array(guide_px_y)
+            col_start = max(left, int(guide_px_x[0]))
+            col_end = min(right, int(guide_px_x[-1]) + 1)
+            all_cols = np.arange(col_start, col_end)
+            guide_interp = np.interp(all_cols, guide_px_x, guide_px_y)
+
+            result_ys = np.copy(guide_interp)
+            pixel_count = 0
+
+            for idx, (col, expected_y) in enumerate(zip(all_cols, guide_interp)):
+                y_lo = max(top, int(expected_y - corridor_px))
+                y_hi = min(bottom, int(expected_y + corridor_px))
+
+                matched_ys = []
+                for y in range(y_lo, y_hi):
+                    r, g, b = px[int(col), y]
+                    if is_curve(r, g, b):
+                        matched_ys.append(y)
+
+                if matched_ys:
+                    clusters = _cluster_ys(matched_ys, gap=3)
+                    best = min(clusters, key=lambda cl: abs(np.mean(cl) - expected_y))
+                    result_ys[idx] = np.mean(best)
+                    pixel_count += 1
+
+            print(f"    Pixel hits: {pixel_count}/{len(all_cols)} "
+                  f"({pixel_count/len(all_cols)*100:.0f}%)")
+
+            data = []
+            for col, y in zip(all_cols, result_ys):
+                freq = _pixel_to_freq_ds(col, left, right, freq_lo, freq_hi)
+                db = _pixel_to_db_ds(y, top, bottom, db_top, db_bottom)
+                data.append((round(freq, 2), round(db, 2)))
+            data = resample_log(data, num_points=256)
+
+        if data:
+            freqs = [d[0] for d in data]
+            dbs = [d[1] for d in data]
+            print(f"    Result: {len(data)} pts, {min(freqs):.0f}-{max(freqs):.0f}Hz, "
+                  f"{min(dbs):.1f} to {max(dbs):.1f}dB")
+            all_curves.append(data)
+
+    return {
+        "single": {
+            "raw_paths": len(all_curves),
+            "curves": all_curves,
         }
     }
 
@@ -775,25 +1134,44 @@ def cmd_prepare(args):
     """Download source images, export masks, report status.
 
     For each mic in the registry:
-      1. Download source PNG if not cached in data/curves/sources/
-      2. Export red pixel mask to data/curves/masks/ (if not already there)
-      3. Report status: hand-edited variants exist, or base mask only
+      1. If datasheet config exists, verify PNG is present
+      2. If rh_id exists, download source PNG if not cached
+      3. Export red pixel mask to recordinghacks/masks/ (if not already there)
+      4. Report status
     """
-    repo = Path(__file__).resolve().parent.parent.parent
-    source_dir = repo / "data" / "curves" / "sources"
-    mask_dir = repo / "data" / "curves" / "masks"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    mask_dir.mkdir(parents=True, exist_ok=True)
+    paths.RH_ORIGINALS.mkdir(parents=True, exist_ok=True)
+    paths.RH_MASKS.mkdir(parents=True, exist_ok=True)
 
     summary = []
 
     for slug in sorted(MICS):
         info = MICS[slug]
         name = info["name"]
-        rh_id = info["rh_id"]
-        source_path = source_dir / f"{slug}.png"
+        ds = info.get("datasheet")
+        rh_id = info.get("rh_id")
 
-        # Download if not cached (or previous download was empty)
+        # Datasheet source
+        if ds:
+            ds_path = paths.datasheet_original(slug)
+            if ds_path.exists():
+                print(f"\n--- {name} ({slug}) --- [datasheet: {ds_path.name}]")
+                summary.append((slug, name, "datasheet", []))
+                continue
+            else:
+                print(f"\n--- {name} ({slug}) ---")
+                print(f"  WARNING: datasheet not found: {ds_path}")
+                summary.append((slug, name, "datasheet_missing", []))
+                # Fall through to RH if available
+
+        # RH source (fallback or primary if no datasheet)
+        if not rh_id:
+            if not ds:
+                print(f"\n--- {name} ({slug}) ---")
+                print(f"  SKIP: no datasheet config and no rh_id")
+                summary.append((slug, name, "no_source", []))
+            continue
+
+        source_path = paths.rh_original(slug)
         if not source_path.exists() or source_path.stat().st_size == 0:
             print(f"\n--- {name} ({slug}) ---")
             download_single_graph(rh_id, source_path)
@@ -805,16 +1183,15 @@ def cmd_prepare(args):
             print(f"\n--- {name} ({slug}) --- [cached]")
 
         # Check if hand-edited masks already exist
-        edited_masks = sorted(mask_dir.glob(f"{slug}_*.png"))
+        edited_masks = sorted(paths.RH_MASKS.glob(f"{slug}_*.png"))
         if edited_masks:
             names = [p.name for p in edited_masks]
             print(f"  Hand-edited masks: {len(names)} ({', '.join(names)})")
             summary.append((slug, name, "edited", names))
         else:
-            # Export base mask if missing
-            mask_path = mask_dir / f"{slug}.png"
+            mask_path = paths.RH_MASKS / f"{slug}.png"
             if not mask_path.exists():
-                _export_mask(source_path, slug, mask_dir, mask_path)
+                _export_mask(source_path, slug, paths.RH_MASKS, mask_path)
             else:
                 print(f"  Base mask: {mask_path.name} [exists]")
             summary.append((slug, name, "base_only", []))
@@ -823,68 +1200,81 @@ def cmd_prepare(args):
     print("\n" + "=" * 70)
     print("SUMMARY")
     print("=" * 70)
-    base_only = []
+    ds_count = 0
+    rh_count = 0
+    missing = []
     for slug, name, status, masks in summary:
-        if status == "edited":
-            print(f"  {name:<25} {slug:<15} ✓ {len(masks)} variant(s)")
+        if status == "datasheet":
+            print(f"  {name:<25} {slug:<15} ★ datasheet")
+            ds_count += 1
+        elif status == "edited":
+            print(f"  {name:<25} {slug:<15} ✓ {len(masks)} mask variant(s)")
+            rh_count += 1
+        elif status == "base_only":
+            print(f"  {name:<25} {slug:<15}   RH base mask")
+            rh_count += 1
         else:
-            print(f"  {name:<25} {slug:<15}   base mask only")
-            base_only.append(slug)
+            print(f"  {name:<25} {slug:<15}   ⚠ {status}")
+            missing.append(slug)
 
-    if base_only:
-        print(f"\n{len(base_only)} mic(s) have only a base mask (no hand-edited variants):")
-        print(f"  {', '.join(base_only)}")
-        print(f"\nIf any of these have multiple response curves (proximity, switches, etc.):")
-        print(f"  1. Open the mask in data/curves/masks/{{slug}}.png")
-        print(f"  2. Make copies — erase unwanted lines in each")
-        print(f"  3. Save as {{slug}}_1.png, {{slug}}_2.png, etc.")
-        print(f"\nThen run: python3 tools/curves/digitize.py build")
+    print(f"\n  Datasheets: {ds_count}  |  RH masks: {rh_count}  |  Missing: {len(missing)}")
 
 
 def cmd_build(args):
-    """Digitize all masks and write JSONs.
+    """Digitize curves and write JSONs.
 
-    For each mic:
-      - If hand-edited masks exist ({slug}_1.png, etc.), digitize each as a
-        separate curve variant
-      - If only the base mask exists, digitize it directly from the source image
-      - Write results to data/curves/digitized/{slug}.json
+    Priority per mic:
+      1. Hand-edited masks → _digitize_mask() (includes datasheet-generated masks)
+      2. Datasheet config → digitize_datasheet() (unguided fallback)
+      3. RH source image → digitize_single()
     """
-    repo = Path(__file__).resolve().parent.parent.parent
-    source_dir = repo / "data" / "curves" / "sources"
-    mask_dir = repo / "data" / "curves" / "masks"
-    out_dir = repo / "data" / "curves" / "digitized"
     tmp_dir = Path("/tmp/poser")
-    out_dir.mkdir(parents=True, exist_ok=True)
+    for d in [paths.DATASHEET_CURVES, paths.RH_CURVES]:
+        d.mkdir(parents=True, exist_ok=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     for slug in sorted(MICS):
         info = MICS[slug]
         name = info["name"]
-        rh_id = info["rh_id"]
-        source_path = source_dir / f"{slug}.png"
+        ds = info.get("datasheet")
+        rh_id = info.get("rh_id")
         print(f"\n--- {name} ({slug}) ---")
 
-        if not source_path.exists() or source_path.stat().st_size == 0:
-            print(f"  SKIP: no source image (run 'prepare' first)")
-            continue
+        source_img = None  # for comparison plot
+        plot_crop = None    # [left, top, right, bottom] for comparison plot
+        output = None
 
-        # Check for hand-edited masks
-        edited_masks = sorted(mask_dir.glob(f"{slug}_*.png"))
+        # Priority 1: Masks — check datasheet masks first, then RH masks
+        mask_dir = None
+        for candidate_dir in [paths.DATASHEET_MASKS, paths.RH_MASKS]:
+            edited = sorted(candidate_dir.glob(f"{slug}_*.png"))
+            single = candidate_dir / f"{slug}.png"
+            if edited or single.exists():
+                mask_dir = candidate_dir
+                break
 
-        if edited_masks:
-            # Digitize each edited mask as a separate curve
+        edited_masks = sorted(mask_dir.glob(f"{slug}_*.png")) if mask_dir else []
+        single_mask = (mask_dir / f"{slug}.png") if mask_dir else Path("/nonexistent")
+        has_mask = bool(edited_masks) or single_mask.exists()
+
+        if has_mask:
+            mask_files = edited_masks if edited_masks else [single_mask]
             all_curves = []
-            for mask_path in edited_masks:
+            for mask_path in mask_files:
                 print(f"  Mask: {mask_path.name}")
                 results = _digitize_mask(mask_path, slug, mask_dir)
                 curves = _results_to_curve_list(results)
                 if curves:
-                    all_curves.append(curves[0])
+                    # Single mask may contain multiple tracked paths
+                    if len(mask_files) == 1:
+                        all_curves.extend(curves)
+                    else:
+                        all_curves.append(curves[0])
 
             if all_curves:
                 for i, c in enumerate(all_curves):
                     c["index"] = i
+                    c["source"] = "mask"
 
                 output = {
                     "slug": slug,
@@ -897,11 +1287,55 @@ def cmd_build(args):
                         }
                     },
                 }
+                # Use datasheet image for comparison if available
+                if ds:
+                    ds_path = paths.datasheet_original(slug)
+                    if ds_path.exists():
+                        source_img = ds_path
+                        plot_crop = ds.get("plot_bounds")
+                if source_img is None:
+                    source_img = paths.rh_original(slug)
             else:
-                print(f"  WARNING: no curves extracted from edited masks")
+                print(f"  WARNING: no curves extracted from masks")
+
+        # Priority 2: Datasheet (unguided auto-extraction)
+        if output is None and ds:
+            ds_path = paths.datasheet_original(slug)
+            if ds_path.exists():
+                results = digitize_datasheet(slug, ds, paths.DATASHEET_ORIGINALS)
+                curve_list = _results_to_curve_list(results)
+
+                curve_configs = ds.get("curves", [])
+                for i, c in enumerate(curve_list):
+                    c["source"] = "datasheet"
+                    if i < len(curve_configs):
+                        label = curve_configs[i].get("label")
+                        if label:
+                            c["note"] = label
+
+                output = {
+                    "slug": slug,
+                    "name": name,
+                    "hand_edited": False,
+                    "curves": {},
+                }
+                if curve_list:
+                    output["curves"]["single"] = {
+                        "num_curves": len(curve_list),
+                        "curves": curve_list,
+                    }
+                source_img = ds_path
+                plot_crop = ds["plot_bounds"]
+            else:
+                print(f"  WARNING: datasheet not found: {ds_path}, falling back")
+
+        # Priority 3: RH source image
+        if output is None:
+            source_path = paths.rh_original(slug)
+            if not source_path.exists() or source_path.stat().st_size == 0:
+                print(f"  SKIP: no source available")
                 continue
-        else:
-            # No edited masks — digitize source image directly
+
             results = digitize_single(source_path)
             curve_list = _results_to_curve_list(results)
 
@@ -916,29 +1350,44 @@ def cmd_build(args):
                     "num_curves": len(curve_list),
                     "curves": curve_list,
                 }
+            source_img = source_path
 
-        json_path = out_dir / f"{slug}.json"
+        if output is None:
+            continue
+
+        # Route output to source-specific directory
+        if mask_dir and mask_dir == paths.DATASHEET_MASKS:
+            target_dir = paths.DATASHEET_CURVES
+        elif ds and source_img and str(paths.DATASHEET_ORIGINALS) in str(source_img):
+            target_dir = paths.DATASHEET_CURVES
+        else:
+            target_dir = paths.RH_CURVES
+        target_dir.mkdir(parents=True, exist_ok=True)
+        json_path = target_dir / f"{slug}.json"
         with open(json_path, "w") as f:
             json.dump(output, f, indent=2)
 
         n = output.get("curves", {}).get("single", {}).get("num_curves", 0)
-        edited = " (hand-edited)" if output.get("hand_edited") else ""
-        print(f"  Wrote {json_path}: {n} curve(s){edited}")
+        src_label = " (datasheet)" if target_dir == paths.DATASHEET_CURVES else ""
+        edited_label = " (hand-edited)" if output.get("hand_edited") else ""
+        print(f"  Wrote {json_path}: {n} curve(s){src_label}{edited_label}")
 
         for c in output.get("curves", {}).get("single", {}).get("curves", []):
             pts = c["data"]
             if pts:
                 freqs = [p["hz"] for p in pts]
                 dbs = [p["db"] for p in pts]
-                print(f"    [{c['index']}] {c['points']} pts, "
+                print(f"    [{c.get('index', '?')}] {c.get('points', len(pts))} pts, "
                       f"{min(freqs):.0f}-{max(freqs):.0f}Hz, "
                       f"{min(dbs):.1f} to {max(dbs):.1f} dB")
 
         # Comparison plot
-        plot_path = tmp_dir / f"{slug}_comparison.png"
-        make_comparison_plot(source_path, output["curves"], plot_path, [rh_id])
+        if source_img and source_img.exists():
+            plot_path = tmp_dir / f"{slug}_comparison.png"
+            make_comparison_plot(source_img, output["curves"], plot_path,
+                                [rh_id or slug], plot_crop=plot_crop)
 
-    print(f"\nDone. JSONs in {out_dir}/")
+    print(f"\nDone. JSONs in {paths.DATASHEET_CURVES}/ and {paths.RH_CURVES}/")
     print(f"Plots in {tmp_dir}/")
 
 
