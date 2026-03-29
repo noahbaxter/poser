@@ -105,11 +105,16 @@ class GuideTracer:
         # Artists for completed curves (added dynamically)
         self.completed_artists = []
 
+        # Store full view limits for zoom clamping
+        self._full_xlim = self.ax.get_xlim()
+        self._full_ylim = self.ax.get_ylim()
+
         # Connect events
         self.fig.canvas.mpl_connect("button_press_event", self._on_press)
         self.fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
         self.fig.canvas.mpl_connect("button_release_event", self._on_release)
         self.fig.canvas.mpl_connect("key_press_event", self._on_key)
+        self.fig.canvas.mpl_connect("scroll_event", self._on_scroll)
 
     def _set_title(self):
         n = len(self.completed) + 1
@@ -232,6 +237,38 @@ class GuideTracer:
                                          linewidth=1.5, alpha=0.8, zorder=4)
         self._set_title()
         self._redraw()
+
+    # --- Zoom ---
+
+    def _on_scroll(self, event):
+        if event.key in ("control", "ctrl+control", "super", "cmd"):
+            if event.button == "up":
+                self._zoom(event, 0.7)
+            elif event.button == "down":
+                self._zoom(event, 1.4)
+
+    def _zoom(self, event, factor):
+        if event.inaxes != self.ax:
+            return
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+        cur_w = xlim[1] - xlim[0]
+        cur_h = ylim[0] - ylim[1]
+        full_w = self._full_xlim[1] - self._full_xlim[0]
+        full_h = self._full_ylim[0] - self._full_ylim[1]
+        new_w = cur_w * factor
+        new_h = cur_h * factor
+        if new_w >= full_w or new_h >= full_h:
+            self.ax.set_xlim(self._full_xlim)
+            self.ax.set_ylim(self._full_ylim)
+            self.fig.canvas.draw_idle()
+            return
+        cx, cy = event.xdata, event.ydata
+        fx = (cx - xlim[0]) / cur_w
+        fy = (cy - ylim[1]) / cur_h
+        self.ax.set_xlim(cx - fx * new_w, cx + (1 - fx) * new_w)
+        self.ax.set_ylim(cy + (1 - fy) * new_h, cy - fy * new_h)
+        self.fig.canvas.draw_idle()
 
     # --- Display ---
 
@@ -374,6 +411,9 @@ class CorridorTuner:
         self.ax.set_yticks([])
         self._update_title(masked)
 
+        self._full_xlim = self.ax.get_xlim()
+        self._full_ylim = self.ax.get_ylim()
+
         self.fig.canvas.mpl_connect("scroll_event", self._on_scroll)
         self.fig.canvas.mpl_connect("key_press_event", self._on_key)
 
@@ -381,7 +421,7 @@ class CorridorTuner:
         px_count = int(np.sum(masked)) if masked is not None else "?"
         self.ax.set_title(
             f"Corridor ±{self.corridor_px}px · scroll/↑↓ to adjust · "
-            f"Enter=accept · {px_count} red px",
+            f"⌘scroll=zoom · Enter=accept · {px_count} red px",
             fontsize=11, fontweight="bold",
         )
 
@@ -397,7 +437,36 @@ class CorridorTuner:
         self.corridor_px = max(2, self.corridor_px + delta)
         self._recompute()
 
+    def _zoom(self, event, factor):
+        if event.inaxes != self.ax:
+            return
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+        cur_w = xlim[1] - xlim[0]
+        cur_h = ylim[0] - ylim[1]
+        full_w = self._full_xlim[1] - self._full_xlim[0]
+        full_h = self._full_ylim[0] - self._full_ylim[1]
+        new_w = cur_w * factor
+        new_h = cur_h * factor
+        if new_w >= full_w or new_h >= full_h:
+            self.ax.set_xlim(self._full_xlim)
+            self.ax.set_ylim(self._full_ylim)
+            self.fig.canvas.draw_idle()
+            return
+        cx, cy = event.xdata, event.ydata
+        fx = (cx - xlim[0]) / cur_w
+        fy = (cy - ylim[1]) / cur_h
+        self.ax.set_xlim(cx - fx * new_w, cx + (1 - fx) * new_w)
+        self.ax.set_ylim(cy + (1 - fy) * new_h, cy - fy * new_h)
+        self.fig.canvas.draw_idle()
+
     def _on_scroll(self, event):
+        if event.key in ("control", "ctrl+control", "super", "cmd"):
+            if event.button == "up":
+                self._zoom(event, 0.7)
+            elif event.button == "down":
+                self._zoom(event, 1.4)
+            return
         step = max(2, self.corridor_px // 5)
         if event.button == "up":
             self._adjust(step)
