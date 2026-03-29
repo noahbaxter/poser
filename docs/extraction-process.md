@@ -13,11 +13,10 @@ All curve data lives in `data/`. The build step compiles everything into `src/Cu
 ### Adding a mic from Audio Test Kitchen (CSV)
 
 1. Place the CSV in `data/curves/atk/` with format `frequency,dB` (one pair per line)
-2. Add the filename → display name mapping in `tools/curves/build.py` (`MIC_MAP` dict)
+2. Add the entry in `tools/curves/registry.py` (`MICS` dict)
 3. Run the build:
 ```bash
-python3 tools/curves/build.py
-python3 tools/curves/generate_header.py
+python3 tools/curves/manage.py build
 ```
 
 ### Adding a mic by digitizing a frequency response chart
@@ -42,10 +41,9 @@ python3 tools/curves/digitize.py --image /path/to/chart.png
 python3 tools/curves/compare.py
 ```
 
-4. The digitized JSON is saved to `data/curves/digitized/`. To include it in the plugin, update `tools/curves/build.py` to also read from the digitized directory, then rebuild:
+4. The digitized JSON is saved to `data/curves/digitized/`. To include it in the plugin, add the mic to `tools/curves/registry.py` and rebuild:
 ```bash
-python3 tools/curves/build.py
-python3 tools/curves/generate_header.py
+python3 tools/curves/manage.py build
 ```
 
 ### RecordingHacks mic catalog
@@ -73,14 +71,14 @@ For non-RecordingHacks images, you may need to adjust the calibration. The tool 
 Curve data lives in `data/`. The build step compiles it into the plugin:
 
 ```bash
-python3 tools/curves/build.py           # → data/curves/extracted_components.json
-python3 tools/curves/generate_header.py  # → src/CurveData.h
+python3 tools/curves/manage.py build    # → extracted_components.json → CurveData.h
 ```
 
 `CurveData.h` contains constexpr arrays that the plugin reads at runtime. The build step:
 - Interpolates all curves onto a 512-point log-frequency grid (20Hz–20kHz)
-- Mean-subtracts so curves represent tonal character relative to flat
-- Normalizes peak magnitude for consistent blend knob behavior
+- Normalizes each curve at 1kHz = 0dB, then mean-centers
+- Generates two curve sets per mic: "full" (raw normalized) and "character" (average subtracted)
+- Applies safety taper at frequency extremes (cosine fade below 30Hz, above 16kHz)
 
 ## File Reference
 

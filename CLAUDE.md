@@ -47,8 +47,9 @@ tools/
     preview_cabs.py          # Multi-cab speaker comparison
 
 data/
+  datasheets/              # Manufacturer datasheet PNGs (committed, primary source)
   curves/
-    sources/                 # Cached source PNGs from RecordingHacks (committed)
+    sources/                 # Cached source PNGs from RecordingHacks (legacy fallback)
     masks/                   # Red pixel masks for digitization (committed, hand-editable)
     atk/                     # Audio Test Kitchen measured responses (CSV)
     digitized/               # Curves extracted from masks (JSON, generated)
@@ -60,17 +61,30 @@ data/
 
 ## Adding a Mic
 
-### Quick version
+### Quick version (datasheet — preferred)
 
 ```bash
-# 1. Add mic to MICS in tools/curves/registry.py
+# 1. Add mic to MICS in tools/curves/registry.py with datasheet config
+# 2. Place manufacturer datasheet PNG in data/datasheets/
+# 3. Measure plot_bounds, freq_range, db_range, color from the image
+#    (use tools/curves/detect_bounds.py for initial estimates)
+# 4. Build everything (digitize → compile → generate header)
+python3 tools/curves/manage.py build
+# 5. Check comparison plots in /tmp/poser/, adjust config if needed
+# 6. Rebuild plugin and listen
+```
+
+### Quick version (RH fallback — legacy)
+
+```bash
+# 1. Add mic to MICS in tools/curves/registry.py with rh_id
 # 2. Download source image and export mask
 python3 tools/curves/manage.py prepare
 # 3. If mask has multiple curves (proximity variants, switch positions):
 #    - Open data/curves/masks/{slug}.png in an image editor
 #    - Duplicate it — erase unwanted lines in each copy
 #    - Save as {slug}_1.png, {slug}_2.png, etc.
-# 4. Build everything (digitize → compile → generate header)
+# 4. Build everything
 python3 tools/curves/manage.py build
 # 5. Rebuild plugin and listen
 ```
@@ -78,23 +92,27 @@ python3 tools/curves/manage.py build
 ### Details
 
 **Registry** (`tools/curves/registry.py`) is the single source of truth for all
-mic definitions. Each entry maps a slug to a display name, RecordingHacks ID,
-and optional ATK CSV. Edit this one file to add or remove mics.
+mic definitions. Each entry maps a slug to a display name and curve source config.
 
-**Source images** come from RecordingHacks single-mic graphs (476x159 RGBA PNGs
-with red curves). `prepare` downloads them to `data/curves/sources/{slug}.png`
-and exports the red pixels as masks to `data/curves/masks/{slug}.png`. Source
-images are cached — they won't re-download if they already exist.
+**Priority**: ATK CSV > datasheet > hand-edited masks > RH source image.
 
-**Masks** are white PNGs with red curve pixels only (no grid, no labels). For
-mics with a single response curve, the base mask works as-is. For mics with
-multiple curves (e.g. proximity effect variants at different distances), make
-copies named `{slug}_1.png`, `{slug}_2.png` etc, and erase the unwanted lines
-in each. When `build` sees `_N` variants, it digitizes each as a separate curve.
+**Datasheets** are manufacturer frequency response PNGs in `data/datasheets/`.
+Each mic's `datasheet` config specifies the image file, plot area pixel bounds,
+axis ranges, and curve color. The digitizer extracts curves using these explicit
+coordinates — no auto-detection needed. For multi-curve images (proximity variants,
+switch positions), add a `curves` list with `line_style: "solid"/"dashed"` to
+discriminate lines. For hard cases (overlapping black curves on black grid),
+the mask editing workflow still works as a fallback.
 
-**ATK mics** (SM57, SM58, SM7B, C414, U87) use lab-measured CSVs as ground truth
-and take priority over digitized data. To validate digitized curves against ATK:
-`python3 tools/curves/validate.py`
+**RH source images** (legacy) are 476x159 RGBA PNGs from RecordingHacks with red
+curves. `prepare` downloads them to `data/curves/sources/` and exports red pixel
+masks to `data/curves/masks/`. Only used when no datasheet config exists.
+
+**Masks** are white PNGs with red curve pixels only. For mics with multiple curves,
+make copies named `{slug}_1.png`, `{slug}_2.png` etc, erasing unwanted lines in each.
+
+**ATK mics** (SM57, SM58, SM7B, C414, D4, U87) use lab-measured CSVs as ground truth
+and take priority over all other sources. To validate: `python3 tools/curves/validate.py`
 
 ## Adding Web Assets
 

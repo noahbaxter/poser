@@ -16,30 +16,70 @@ what makes it different from the average of all values in that dimension.
 
 ## Data Sources
 
-| Component | Source | Count | Typical Range |
-|-----------|--------|-------|---------------|
-| Mic | Published frequency response measurements | 16 | +/-5-10 dB |
-| Cab | IR decomposition | 4 | +/-0.5-2 dB |
-| Speaker | IR decomposition | 8 | +/-1-3 dB |
-| Position | IR decomposition | 13 | +/-2-5 dB |
+| Component | Source | Count | Full Range | Character Range |
+|-----------|--------|-------|------------|-----------------|
+| Mic | Published frequency response measurements | 27 (46 curves) | 4-23 dB ptp | 5-10 dB ptp |
+| Cab | IR decomposition | 4 | +/-0.5-2 dB | — |
+| Speaker | IR decomposition | 8 | +/-1-3 dB | — |
+| Position | IR decomposition | 13 | +/-2-5 dB | — |
 
-Mic curves come from published frequency response data (lab measurements and
-manufacturer charts). Cab, speaker, and position curves come from decomposing
-a large multi-variable IR collection across many cab/speaker/mic/position combos.
+Mic curves come from two sources: lab-measured CSVs from Audio Test Kitchen (SM57,
+SM58, SM7B, C414, U87) and digitized frequency response charts from RecordingHacks.
+ATK data takes priority when both exist. Manufacturer datasheets are stored in
+`data/datasheets/` for visual cross-reference (24 mics).
 
-## Character Extraction
+Cab, speaker, and position curves come from decomposing a multi-variable IR
+collection across many cab/speaker/mic/position combos. These use character
+extraction only (no full mode) since they're already relative measurements.
 
-Each component's raw frequency response includes shared physics (e.g., all mics
-roll off at the extremes). We subtract the average to isolate pure character:
+## Mic Curve Modes
+
+Mic curves are stored in two forms, selectable at runtime via the FULL toggle:
+
+### Full Mode (default)
+
+The mic's actual frequency response normalized at 1kHz = 0dB, mean-centered, with
+safety taper at the extremes. This is the raw shape — includes natural bass rolloff,
+presence peaks, everything. A SM57 in full mode has ~23dB peak-to-peak swing.
+
+### Character Mode
+
+Subtracts the average of all mic curves from each individual curve:
 
     character(f) = raw(f) - mean_of_all(f)
 
-This removes the shared rolloff and leaves only the tonal signature: presence peaks,
-mid scoops, warmth differences. The average is discarded — it's the "generic" shape
-common to all items in that dimension.
+This removes the shared rolloff that all mics have, leaving only the tonal signature:
+what makes each mic different from "generic mic." More subtle (~9dB peak-to-peak for
+SM57). Note: character extraction can amplify differences for mics that are opposite
+to the average — e.g. a kick mic with less presence than average gets an exaggerated
+presence cut after subtraction.
 
-A safety taper is applied at the extremes (cosine fade below 30 Hz and above 16 kHz)
-to prevent artifacts from unreliable data at the frequency edges.
+### Safety Taper
+
+Both modes apply a cosine fade below 30 Hz and above 16 kHz to prevent artifacts
+from unreliable data at the frequency edges.
+
+## Swap Mode
+
+When the source signal already went through a known microphone (e.g. a cab IR captured
+with a SM57), the swap selector subtracts that mic's curve before applying the target:
+
+    totalDb = target[bin] * blend - swap[bin]
+
+The swap mic is always subtracted at full -100% strength regardless of the blend knob
+position. The blend knob only controls how much of the target mic gets added. This is
+intentional: you always want to fully undo the source mic, then partially or fully
+apply the new one.
+
+Note: in swap mode, Full vs Character mode produces identical results because the
+average mic curve cancels out in the subtraction: `(A - avg) - (B - avg) = A - B`.
+
+### Limitations
+
+Swap mode operates on magnitude only. A cab IR contains the mic's full response
+(magnitude + phase + proximity + time-domain behavior). Subtracting the magnitude
+curve gets you the frequency difference but can't undo the phase characteristics
+baked into the IR. This is the biggest component but not the whole picture.
 
 ## Cab/Speaker Filter
 
@@ -91,8 +131,12 @@ Input
 [FFT: 1024-point, sqrt-Hann window]
   |
   v
-[Combine character curves in dB domain]
-  totalDb = mic * micBlend + cab * cabBlend + speaker * speakerBlend + position * positionBlend
+[Select mic curve set: Full (kMicsFull) or Character (kMics)]
+  |
+  v
+[Combine curves in dB domain]
+  totalDb = mic[target] * micBlend - mic[swap]    (swap fixed at 100%, omitted if off)
+          + cab * cabBlend + speaker * speakerBlend + position * positionBlend
   totalDb *= masterPush
   |
   v

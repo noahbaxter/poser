@@ -69,7 +69,7 @@ Transient behavior and capsule resonance contribute more to the identity of cond
 - **Multi-curve blending**: Load two curves and blend between them — "40% SM7B + 60% RE20." Powerful but adds UI complexity. Probably v2.
 
 ### Explicitly NOT included (settled decisions, don't revisit)
-- Source mic selector (you don't need to tell it what you recorded with — this is the key UX difference from Antares Mic Mod)
+- Source mic selector as a REQUIRED input (you don't need to tell it what you recorded with — this is the key UX difference from Antares Mic Mod). Exception: optional "swap" selector for advanced users who want to subtract a known source mic when re-mic'ing cab IRs.
 - Transient shaping of any kind
 - Noise/character generator
 - Proximity effect modeling
