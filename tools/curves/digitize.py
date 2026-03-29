@@ -248,6 +248,51 @@ def _deduplicate_paths(paths):
     return unique
 
 
+def _stitch_fragments(paths, max_gap_px=80, max_y_diff=10):
+    """Merge path fragments that are clearly part of the same line.
+
+    Hand-drawn masks often have gaps (dashed source lines, imperfect tracing).
+    The tracker produces many short fragments. This stitches consecutive
+    fragments when the Y positions at the join are close enough.
+
+    max_gap_px:  max X gap between end of one fragment and start of next
+    max_y_diff:  max Y difference at the join point (pixels)
+    """
+    if len(paths) <= 1:
+        return paths
+
+    # Sort fragments by start X
+    frags = sorted(paths, key=lambda p: p[0][0])
+
+    merged = [list(frags[0])]
+    for frag in frags[1:]:
+        prev = merged[-1]
+        prev_end_x, prev_end_y = prev[-1]
+        frag_start_x, frag_start_y = frag[0]
+
+        gap = frag_start_x - prev_end_x
+        y_diff = abs(frag_start_y - prev_end_y)
+
+        if 0 < gap <= max_gap_px and y_diff <= max_y_diff:
+            # Stitch: linearly interpolate across the gap
+            if gap > 1:
+                for x in range(int(prev_end_x) + 1, int(frag_start_x)):
+                    t = (x - prev_end_x) / gap
+                    y = prev_end_y + t * (frag_start_y - prev_end_y)
+                    prev.append((x, y))
+            prev.extend(frag)
+        else:
+            merged.append(list(frag))
+
+    stitched = len(frags) - len(merged)
+    if stitched > 0:
+        print(f"  Stitched {len(frags)} fragments → {len(merged)} path(s)")
+
+    # Re-sort by span descending
+    merged.sort(key=lambda p: -(p[-1][0] - p[0][0]))
+    return merged
+
+
 def _complete_fragments(paths):
     """Splice fragment curves onto the main (widest) curve.
 
@@ -671,11 +716,16 @@ def _export_mask(image_path, slug, out_dir, mask_path=None):
 def _digitize_mask(mask_path, slug, cal_dir):
     """Digitize a cleaned mask PNG using saved calibration.
 
-    The mask is a white image with red pixels only — same dimensions as the
-    original plot area. Supports two calibration formats:
+    One mask = one curve. Finds the median red pixel Y per column, fits a
+    smooth spline through them (rejecting outliers), and outputs a clean curve.
+    Handles dashed lines, gaps, and stray pixels gracefully.
+
+    Supports two calibration formats:
       - RH-style: {A, B, left, right, top, bottom}
       - Datasheet-style: {plot_bounds, freq_range, db_range, source: "datasheet"}
     """
+    from scipy.interpolate import UnivariateSpline
+
     cal_path = cal_dir / f"{slug}.json"
     if not cal_path.exists():
         print(f"ERROR: Calibration file not found: {cal_path}")
@@ -702,8 +752,7 @@ def _digitize_mask(mask_path, slug, cal_dir):
     w, h = img.size
     print(f"\nDigitizing mask: {mask_path} ({w}x{h})")
 
-    # The mask image IS the plot area — coordinates are relative to (0,0)
-    # but calibration expects absolute pixel coords, so offset by left/top
+    # Find red pixels
     mask = np.zeros((h, w), dtype=bool)
     for r in range(h):
         for c in range(w):
@@ -714,47 +763,90 @@ def _digitize_mask(mask_path, slug, cal_dir):
     total_red = int(np.sum(mask))
     print(f"  Red pixels: {total_red}")
 
-    # Build per-column clusters (x coords offset to match original calibration)
-    col_centers = {}
+    # One median Y per column — simple, no clustering needed
+    xs = []
+    ys = []
     for c in range(w):
-        ys = [r + top for r in range(h) if mask[r, c]]
-        if ys:
-            clusters = _cluster_ys(ys, gap=5)
-            col_centers[c + left] = [sum(cl) / len(cl) for cl in clusters]
+        col_ys = np.where(mask[:, c])[0]
+        if len(col_ys) > 0:
+            xs.append(c)
+            ys.append(np.median(col_ys))
 
-    x_values = sorted(col_centers.keys())
-    if not x_values:
+    if not xs:
         print("  WARNING: No red pixels found in mask")
         return {}
 
-    plot_w = right - left
-    paths = _track_paths(col_centers, plot_w)
-    unique = _deduplicate_paths(paths)
-    print(f"  Tracked {len(unique)} path(s)")
+    xs = np.array(xs, dtype=float)
+    ys = np.array(ys, dtype=float)
 
-    # Convert to freq/dB
-    curves = []
-    for i, raw_path in enumerate(unique):
+    # Remove isolated clumps — find gaps > 50px and drop any clump with
+    # fewer than 20 columns (stray marks, not real curve data)
+    gaps = np.diff(xs)
+    split_indices = np.where(gaps > 50)[0] + 1
+    clumps = np.split(np.arange(len(xs)), split_indices)
+    keep_mask = np.zeros(len(xs), dtype=bool)
+    for clump in clumps:
+        if len(clump) >= 20:
+            keep_mask[clump] = True
+    n_removed = int(np.sum(~keep_mask))
+    if n_removed > 0:
+        print(f"  Removed {n_removed} isolated pixel(s)")
+        xs = xs[keep_mask]
+        ys = ys[keep_mask]
+
+    print(f"  Columns with data: {len(xs)} of {w}")
+
+    # Pass 1: rough spline to identify outliers
+    # s = smoothing factor — larger = smoother. Scale by number of points.
+    s_factor = len(xs) * 2.0
+    spline = UnivariateSpline(xs, ys, s=s_factor, k=3)
+    fitted = spline(xs)
+    residuals = np.abs(ys - fitted)
+
+    # Reject points > 3 * median absolute deviation from the spline
+    mad = np.median(residuals)
+    threshold = max(mad * 4.0, 3.0)  # at least 3px tolerance
+    keep = residuals <= threshold
+    n_rejected = int(np.sum(~keep))
+    if n_rejected > 0:
+        print(f"  Outlier rejection: removed {n_rejected} points (threshold: {threshold:.1f}px)")
+    xs_clean = xs[keep]
+    ys_clean = ys[keep]
+
+    # Pass 2: final spline on clean data
+    s_final = len(xs_clean) * 1.0
+    spline_final = UnivariateSpline(xs_clean, ys_clean, s=s_final, k=3)
+
+    # Evaluate on a uniform grid spanning the data range
+    n_out = min(512, int(xs_clean[-1] - xs_clean[0]))
+    x_out = np.linspace(xs_clean[0], xs_clean[-1], n_out)
+    y_out = spline_final(x_out)
+
+    # Convert pixel coords to freq/dB
+    # x_out is in mask-relative coords (0..w), offset by left for calibration
+    data = []
+    for x_px, y_px in zip(x_out, y_out):
+        x_abs = x_px + left
+        y_abs = y_px + top
         if is_datasheet:
-            data = []
-            for x, y in raw_path:
-                freq = _pixel_to_freq_ds(x, left, right, freq_lo, freq_hi)
-                db = _pixel_to_db_ds(y, top, bottom, cal_db_top, cal_db_bottom)
-                data.append((round(freq, 2), round(db, 2)))
+            freq = _pixel_to_freq_ds(x_abs, left, right, freq_lo, freq_hi)
+            db = _pixel_to_db_ds(y_abs, top, bottom, cal_db_top, cal_db_bottom)
         else:
-            data = pixels_to_data(raw_path, A, B, top, bottom)
-        data = filter_continuity(data)
-        if data:
-            freqs = [d[0] for d in data]
-            dbs = [d[1] for d in data]
-            print(f"  Curve {i}: {len(data)} pts, {min(freqs):.0f}-{max(freqs):.0f}Hz, "
-                  f"{min(dbs):.1f} to {max(dbs):.1f}dB")
-            curves.append(data)
+            freq = pixel_to_freq(x_abs, A, B)
+            db = pixel_to_db(y_abs, top, bottom)
+        if freq > 0:
+            data.append((round(freq, 2), round(db, 2)))
+
+    if data:
+        freqs = [d[0] for d in data]
+        dbs = [d[1] for d in data]
+        print(f"  Curve: {len(data)} pts, {min(freqs):.0f}-{max(freqs):.0f}Hz, "
+              f"{min(dbs):.1f} to {max(dbs):.1f}dB")
 
     return {
         "single": {
-            "raw_paths": len(unique),
-            "curves": curves,
+            "raw_paths": 1,
+            "curves": [data] if data else [],
         }
     }
 
@@ -919,9 +1011,10 @@ def digitize_datasheet(slug, ds_config, datasheets_dir):
     max_clusters = max(len(col_centers[x]) for x in x_values)
     print(f"  Columns with data: {len(x_values)}, max simultaneous lines: {max_clusters}")
 
-    # Track, deduplicate, complete fragments
+    # Track, deduplicate, stitch gaps, complete fragments
     paths = _track_paths(col_centers, plot_w)
     unique = _deduplicate_paths(paths)
+    unique = _stitch_fragments(unique)
     print(f"  Tracked {len(unique)} path(s)")
 
     # Filter out gridlines: real curves have significant dB variation,
@@ -1233,7 +1326,11 @@ def cmd_build(args):
         d.mkdir(parents=True, exist_ok=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    for slug in sorted(MICS):
+    slugs = args.slugs if hasattr(args, 'slugs') and args.slugs else sorted(MICS)
+    for slug in slugs:
+        if slug not in MICS:
+            print(f"\nUnknown slug: {slug}")
+            continue
         info = MICS[slug]
         name = info["name"]
         ds = info.get("datasheet")

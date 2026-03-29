@@ -1013,10 +1013,105 @@ def _ask_color(ds_config):
     return color_input if color_input in ("black", "blue", "red") else default
 
 
+def _save_guide(slug, curves, freq_range, db_range, plot_bounds, color):
+    """Persist guide trace to disk immediately."""
+    paths.DATASHEET_GUIDES.mkdir(parents=True, exist_ok=True)
+    guide_path = paths.datasheet_guide(slug)
+    guide_data = {
+        "slug": slug,
+        "curves": curves,
+        "freq_range": freq_range,
+        "db_range": db_range,
+        "plot_bounds": plot_bounds,
+        "color": color,
+    }
+    with open(guide_path, "w") as f:
+        json.dump(guide_data, f, indent=2)
+    print(f"  Guide saved → {guide_path.name}")
+    return guide_path, guide_data
+
+
+def _load_guide(slug):
+    """Load existing guide if present. Returns guide_data or None."""
+    guide_path = paths.datasheet_guide(slug)
+    if not guide_path.exists():
+        return None
+    with open(guide_path) as f:
+        return json.load(f)
+
+
+def _preview_curve(slug, img, mask_paths, cal_data):
+    """Digitize masks and show resulting curve overlaid on datasheet.
+
+    Returns True if user accepts, False to redo masks.
+    """
+    from digitize import _digitize_mask, _results_to_curve_list
+
+    all_curves = []
+    for mp in mask_paths:
+        results = _digitize_mask(mp, slug, mp.parent)
+        curve_list = _results_to_curve_list(results) if results else []
+        if curve_list:
+            all_curves.extend(curve_list)
+
+    if not all_curves:
+        print("  WARNING: no curves extracted from masks")
+        return False
+
+    # Show overlay
+    left, top, right, bottom = cal_data["plot_bounds"]
+    freq_lo, freq_hi = cal_data["freq_range"]
+    db_top, db_bottom = cal_data["db_range"]
+    cropped = img[top:bottom, left:right]
+
+    fig, (ax_img, ax_curve) = plt.subplots(2, 1, figsize=(14, 8),
+                                            gridspec_kw={"height_ratios": [1, 1.2]})
+    fig.canvas.manager.set_window_title(f"Preview: {slug}")
+
+    ax_img.imshow(cropped, aspect="auto")
+    ax_img.set_title(f"{slug} — datasheet", fontsize=12, fontweight="bold")
+    ax_img.set_xticks([])
+    ax_img.set_yticks([])
+
+    colors = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6"]
+    for i, c in enumerate(all_curves):
+        pts = c.get("data", [])
+        if not pts:
+            continue
+        freqs = [p["hz"] for p in pts]
+        dbs = [p["db"] for p in pts]
+        ax_curve.semilogx(freqs, dbs, color=colors[i % len(colors)],
+                          linewidth=2, label=f"Curve {i} ({len(pts)} pts)")
+
+    ax_curve.set_xlim(max(10, freq_lo * 0.8), freq_hi * 1.2)
+    ax_curve.set_ylim(db_bottom - 2, db_top + 2)
+    ax_curve.axhline(0, color="gray", linewidth=0.5, linestyle="--")
+    ax_curve.set_xlabel("Frequency (Hz)")
+    ax_curve.set_ylabel("dB")
+    ax_curve.set_title(f"Extracted curve(s) — close window to continue", fontsize=11)
+    ax_curve.legend(loc="lower right", fontsize=9)
+    ax_curve.grid(True, which="both", alpha=0.3)
+    ticks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000]
+    visible = [t for t in ticks if freq_lo * 0.8 <= t <= freq_hi * 1.2]
+    ax_curve.set_xticks(visible)
+    ax_curve.set_xticklabels([f"{t//1000}k" if t >= 1000 else str(t) for t in visible])
+
+    plt.tight_layout()
+    plt.show()
+
+    response = input("  Accept curve? (Y/n/redo-masks): ").strip().lower()
+    return response not in ("n", "no", "redo", "redo-masks")
+
+
 def guide_mic(slug, mic_config):
     """Run interactive guide tracer for one mic. Returns True if saved.
 
-    Flow: show image → ask axis ranges → trace → digitize → compare → accept/redo.
+    Flow:
+      1. Check for saved guide → offer resume or retrace
+      2. Trace (if needed) → save guide immediately
+      3. Generate masks from guide → edit masks → preview curve
+      4. If preview looks wrong, redo masks (not trace)
+      5. Confirm axis ranges → save calibration → done
     """
     ds = mic_config.get("datasheet", {})
 
@@ -1024,7 +1119,6 @@ def guide_mic(slug, mic_config):
     if ds:
         img_path = paths.datasheet_original(slug)
     else:
-        # Try to find by slug pattern
         candidates = list(paths.DATASHEET_ORIGINALS.glob(f"*{slug}*"))
         if not candidates:
             print(f"  {slug}: no datasheet image found, skipping")
@@ -1062,11 +1156,8 @@ def guide_mic(slug, mic_config):
         detected_db = _detect_db_range(img, plot_bounds)
         db_guess = list(detected_db) if detected_db else [10, -10]
 
-    # Freq range: almost always 20-20kHz
     freq_guess = ds.get("freq_range", [20, 20000])
 
-    # Use auto-detected values for tracing (axis labels only matter for
-    # final calibration, not for drawing the guide). We'll confirm at the end.
     working_ds = {
         "file": img_path.name,
         "color": color_guess,
@@ -1075,7 +1166,41 @@ def guide_mic(slug, mic_config):
         "db_range": db_guess,
     }
 
-    while True:
+    # --- Step 1: Get guide trace (resume or new) ---
+    existing_guide = _load_guide(slug)
+    curves = None
+    guide_data = None
+
+    if existing_guide:
+        n_curves = len(existing_guide.get("curves", []))
+        n_points = sum(len(c.get("points", [])) for c in existing_guide.get("curves", []))
+        print(f"  Found saved guide: {n_curves} curve(s), {n_points} points")
+        choice = input("  Resume from saved guide, retrace, or skip? (R/retrace/skip): ").strip().lower()
+        if choice in ("skip", "s"):
+            print(f"  Skipped")
+            return False
+        elif choice in ("retrace", "t"):
+            existing_guide = None  # fall through to tracing
+        else:
+            # Resume: use saved guide data
+            curves = existing_guide["curves"]
+            guide_data = existing_guide
+            # Update working_ds from saved guide (may have confirmed axis ranges)
+            if "plot_bounds" in existing_guide:
+                plot_bounds = existing_guide["plot_bounds"]
+                working_ds["plot_bounds"] = plot_bounds
+            if "freq_range" in existing_guide:
+                freq_guess = existing_guide["freq_range"]
+                working_ds["freq_range"] = freq_guess
+            if "db_range" in existing_guide:
+                db_guess = existing_guide["db_range"]
+                working_ds["db_range"] = db_guess
+            if "color" in existing_guide:
+                color_guess = existing_guide["color"]
+                working_ds["color"] = color_guess
+
+    if curves is None:
+        # New trace
         tracer = GuideTracer(img, slug, working_ds)
         curves = tracer.run()
 
@@ -1085,87 +1210,107 @@ def guide_mic(slug, mic_config):
 
         _prompt_labels(curves)
 
-        # Generate mask PNGs from guide corridor
+        # Save guide immediately — the human work is preserved
+        _, guide_data = _save_guide(slug, curves, freq_guess, db_guess,
+                                     plot_bounds, color_guess)
+
+    # --- Step 2: Generate masks, edit, preview (repeatable loop) ---
+    while True:
         mask_paths = _generate_mask(img, working_ds, curves, slug)
 
         if not mask_paths:
-            print(f"  Redoing trace...")
+            response = input("  Mask generation failed. Retrace? (Y/n): ").strip().lower()
+            if response in ("n", "no"):
+                return False
+            # Retrace but guide is still saved
+            tracer = GuideTracer(img, slug, working_ds)
+            curves = tracer.run()
+            if curves is None:
+                return False
+            _prompt_labels(curves)
+            _, guide_data = _save_guide(slug, curves, freq_guess, db_guess,
+                                         plot_bounds, color_guess)
             continue
 
-        # Save guide JSON for reference (using guesses — confirmed values go in cal JSON later)
-        paths.DATASHEET_GUIDES.mkdir(parents=True, exist_ok=True)
-        guide_path = paths.datasheet_guide(slug)
-        guide_data = {
-            "slug": slug,
-            "curves": curves,
-            "freq_range": freq_guess,
-            "db_range": db_guess,
-            "plot_bounds": plot_bounds,
-            "color": color_guess,
-        }
-        with open(guide_path, "w") as f:
-            json.dump(guide_data, f, indent=2)
-
-        # Open mask editor for each mask — erase stray pixels inline
+        # Mask editor
         all_saved = True
         for mp in mask_paths:
-            print(f"\n  Editing {mp.name} — erase stray pixels, Enter to save, Q to redo trace")
+            print(f"\n  Editing {mp.name} — erase stray pixels, Enter to save, Q to redo")
             editor = MaskEditor(mp)
             if not editor.run():
                 all_saved = False
 
         if not all_saved:
-            print(f"  Redoing trace...")
-            continue
+            response = input("  Redo masks or retrace? (masks/retrace/skip): ").strip().lower()
+            if response in ("skip", "s"):
+                return False
+            if response in ("retrace", "t"):
+                tracer = GuideTracer(img, slug, working_ds)
+                curves = tracer.run()
+                if curves is None:
+                    return False
+                _prompt_labels(curves)
+                _, guide_data = _save_guide(slug, curves, freq_guess, db_guess,
+                                             plot_bounds, color_guess)
+            continue  # redo masks
 
-        if all_saved:
-            # Show original image so user can read axis labels
-            fig_ref, ax_ref = plt.subplots(1, 1, figsize=(14, 7))
-            fig_ref.canvas.manager.set_window_title(f"Reference: {slug}")
-            ax_ref.imshow(img)
-            ax_ref.set_title(f"{slug} — confirm axis ranges from labels", fontsize=12)
-            ax_ref.set_xticks([])
-            ax_ref.set_yticks([])
-            plt.tight_layout()
-            plt.ion()
-            fig_ref.show()
-            fig_ref.canvas.flush_events()
+        # --- Step 3: Preview extracted curve ---
+        # Save calibration so _digitize_mask can read it
+        paths.DATASHEET_MASKS.mkdir(parents=True, exist_ok=True)
+        cal_path = paths.DATASHEET_MASKS / f"{slug}.json"
+        cal = {
+            "plot_bounds": plot_bounds,
+            "freq_range": freq_guess,
+            "db_range": db_guess,
+            "source": "datasheet",
+        }
+        with open(cal_path, "w") as f:
+            json.dump(cal, f, indent=2)
 
-            print(f"\n  Auto-detected: freq={freq_guess[0]}-{freq_guess[1]}Hz, "
-                  f"dB={db_guess[0]} to {db_guess[1]}")
-            freq_lo, freq_hi, db_top, db_bottom = _ask_axis_ranges(slug, {
-                "freq_range": freq_guess, "db_range": db_guess,
-            })
-
-            plt.close(fig_ref)
-            plt.ioff()
-
-            # Update calibration JSON with confirmed values
-            cal_path = paths.DATASHEET_MASKS / f"{slug}.json"
-            cal = {
-                "plot_bounds": plot_bounds,
-                "freq_range": [freq_lo, freq_hi],
-                "db_range": [db_top, db_bottom],
-                "source": "datasheet",
-            }
-            with open(cal_path, "w") as f:
-                json.dump(cal, f, indent=2)
-
-            print(f"\n  Masks cleaned and saved. Run:")
-            print(f"    python3 tools/curves/manage.py build")
-            return True
-
-        # If discarded, ask what to do
-        response = input(f"\n  Redo guide for {slug}? (Y/n): ").strip().lower()
-        if response in ("n", "no"):
-            for mp in mask_paths:
-                mp.unlink(missing_ok=True)
-            guide_path.unlink(missing_ok=True)
-            print(f"  Cleaned up, skipping {slug}")
-            return False
+        if _preview_curve(slug, img, mask_paths, cal):
+            break  # accepted
         else:
-            print(f"  Redoing guide for {slug}...")
+            print("  Redoing masks (guide trace is preserved)...")
             continue
+
+    # --- Step 4: Confirm axis ranges ---
+    fig_ref, ax_ref = plt.subplots(1, 1, figsize=(14, 7))
+    fig_ref.canvas.manager.set_window_title(f"Reference: {slug}")
+    ax_ref.imshow(img)
+    ax_ref.set_title(f"{slug} — confirm axis ranges from labels", fontsize=12)
+    ax_ref.set_xticks([])
+    ax_ref.set_yticks([])
+    plt.tight_layout()
+    plt.ion()
+    fig_ref.show()
+    fig_ref.canvas.flush_events()
+
+    print(f"\n  Auto-detected: freq={freq_guess[0]}-{freq_guess[1]}Hz, "
+          f"dB={db_guess[0]} to {db_guess[1]}")
+    freq_lo, freq_hi, db_top, db_bottom = _ask_axis_ranges(slug, {
+        "freq_range": freq_guess, "db_range": db_guess,
+    })
+
+    plt.close(fig_ref)
+    plt.ioff()
+
+    # Update calibration JSON with confirmed values
+    cal = {
+        "plot_bounds": plot_bounds,
+        "freq_range": [freq_lo, freq_hi],
+        "db_range": [db_top, db_bottom],
+        "source": "datasheet",
+    }
+    with open(cal_path, "w") as f:
+        json.dump(cal, f, indent=2)
+
+    # Update guide with confirmed axis ranges too
+    _save_guide(slug, curves, [freq_lo, freq_hi], [db_top, db_bottom],
+                plot_bounds, color_guess)
+
+    print(f"\n  Done! Masks + guide saved. Run:")
+    print(f"    python3 tools/curves/manage.py build")
+    return True
 
 
 def main():
