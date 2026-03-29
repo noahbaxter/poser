@@ -1097,9 +1097,13 @@ def _preview_curve(slug, img, mask_paths, cal_data):
     ax_curve.set_xticklabels([f"{t//1000}k" if t >= 1000 else str(t) for t in visible])
 
     plt.tight_layout()
-    plt.show()
+    plt.ion()
+    fig.show()
+    fig.canvas.flush_events()
 
     response = input("  Accept curve? (Y/n/redo-masks): ").strip().lower()
+    plt.close(fig)
+    plt.ioff()
     return response not in ("n", "no", "redo", "redo-masks")
 
 
@@ -1206,13 +1210,17 @@ def guide_mic(slug, mic_config):
         ax_curve.axhline(0, color="gray", linewidth=0.5, linestyle="--")
         ax_curve.set_xlabel("Frequency (Hz)")
         ax_curve.set_ylabel("dB")
-        ax_curve.set_title("Saved guide trace — close window to continue", fontsize=11)
+        ax_curve.set_title("Saved guide trace", fontsize=11)
         ax_curve.legend(loc="lower right", fontsize=9)
         ax_curve.grid(True, which="both", alpha=0.3)
         plt.tight_layout()
-        plt.show()
+        plt.ion()
+        fig.show()
+        fig.canvas.flush_events()
 
         choice = input("  Resume from saved guide, retrace, or skip? (R/retrace/skip): ").strip().lower()
+        plt.close(fig)
+        plt.ioff()
         if choice in ("skip", "s"):
             print(f"  Skipped")
             return False
