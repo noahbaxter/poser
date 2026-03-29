@@ -1175,6 +1175,43 @@ def guide_mic(slug, mic_config):
         n_curves = len(existing_guide.get("curves", []))
         n_points = sum(len(c.get("points", [])) for c in existing_guide.get("curves", []))
         print(f"  Found saved guide: {n_curves} curve(s), {n_points} points")
+
+        # Show saved trace overlaid on datasheet so user can judge quality
+        guide_bounds = existing_guide.get("plot_bounds", plot_bounds)
+        gl, gt, gr, gb = guide_bounds
+        guide_freq = existing_guide.get("freq_range", freq_guess)
+        guide_db = existing_guide.get("db_range", db_guess)
+        cropped = img[gt:gb, gl:gr]
+
+        fig, (ax_img, ax_curve) = plt.subplots(2, 1, figsize=(14, 7),
+                                                gridspec_kw={"height_ratios": [1, 1]})
+        fig.canvas.manager.set_window_title(f"Saved guide: {slug}")
+        ax_img.imshow(cropped, aspect="auto")
+        ax_img.set_title(f"{slug} — datasheet", fontsize=11)
+        ax_img.set_xticks([])
+        ax_img.set_yticks([])
+
+        colors_list = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6"]
+        for ci, gc in enumerate(existing_guide.get("curves", [])):
+            pts = gc.get("points", [])
+            if pts:
+                gfreqs = [p[0] for p in pts]
+                gdbs = [p[1] for p in pts]
+                label_text = gc.get("label", f"Curve {ci}")
+                ax_curve.semilogx(gfreqs, gdbs, color=colors_list[ci % len(colors_list)],
+                                  linewidth=2, label=f"{label_text} ({len(pts)} pts)")
+
+        ax_curve.set_xlim(max(10, guide_freq[0] * 0.8), guide_freq[1] * 1.2)
+        ax_curve.set_ylim(guide_db[1] - 2, guide_db[0] + 2)
+        ax_curve.axhline(0, color="gray", linewidth=0.5, linestyle="--")
+        ax_curve.set_xlabel("Frequency (Hz)")
+        ax_curve.set_ylabel("dB")
+        ax_curve.set_title("Saved guide trace — close window to continue", fontsize=11)
+        ax_curve.legend(loc="lower right", fontsize=9)
+        ax_curve.grid(True, which="both", alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
         choice = input("  Resume from saved guide, retrace, or skip? (R/retrace/skip): ").strip().lower()
         if choice in ("skip", "s"):
             print(f"  Skipped")
