@@ -82,6 +82,10 @@
     /* Tooltip */
     --tooltip-font: 12px;
 
+    /* EQ viewer */
+    --eq-pad-bottom: 16px;
+    --eq-pad-inner: 4px;
+
     /* Version */
     --version-font: 9px;
 

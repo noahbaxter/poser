@@ -7,6 +7,7 @@
 
 import { getNativeFunction, getParameterScaled, onParameterChange } from '../lib/juce-bridge.js';
 import { scrollDelta } from '../lib/scroll.js';
+import { Knob } from './controls/knob.js';
 
 // ============================================================
 // Tuning constants — adjust these to taste
@@ -81,6 +82,29 @@ export class FreqResponse {
         this.scaleBtn.textContent = '\u00B1' + this.scale;
         this.scaleBtn.addEventListener('click', () => this.cycleScale(1));
         viewerEl.appendChild(this.scaleBtn);
+
+        // Viewer gain knob (bottom-right, ±18dB, display-only — no JUCE param)
+        this.viewerGainDb = 0;
+        const gainGroup = document.createElement('div');
+        gainGroup.className = 'eq-gain-group';
+        const gainLabel = document.createElement('div');
+        gainLabel.className = 'eq-gain-label';
+        gainLabel.textContent = 'GAIN';
+        const gainSlot = document.createElement('div');
+        gainSlot.className = 'eq-gain-slot';
+        this.gainKnob = new Knob(gainSlot, {
+            param: null,
+            min: -18, max: 18, step: 0.5, coarseStep: 3,
+            defaultValue: 0,
+            className: 'master-knob eq-gain-knob',
+            formatValue: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`,
+            tooltipAbove: true,
+        });
+        this.gainKnob.onChange = (v) => { this.viewerGainDb = v; };
+        gainGroup.appendChild(gainSlot);
+        gainGroup.appendChild(gainLabel);
+        gainGroup.addEventListener('wheel', (e) => e.stopPropagation(), { passive: false });
+        viewerEl.appendChild(gainGroup);
 
         // Scroll to change scale — anywhere on the viewer
         const handleScaleScroll = (e) => {
@@ -302,7 +326,10 @@ export class FreqResponse {
 
         const scale = this.scale;
 
-        const pad = { left: 4, right: 4, top: 6, bottom: 16 };
+        const rootStyle = getComputedStyle(document.documentElement);
+        const eqPadBottom = parseInt(rootStyle.getPropertyValue('--eq-pad-bottom')) || 16;
+        const eqPadInner = parseInt(rootStyle.getPropertyValue('--eq-pad-inner')) || 4;
+        const pad = { left: eqPadInner, right: eqPadInner, top: 6, bottom: eqPadBottom };
         const pw = w - pad.left - pad.right;
         const ph = h - pad.top - pad.bottom;
         const logMin = Math.log10(MIN_FREQ);
@@ -438,12 +465,14 @@ export class FreqResponse {
 
             // Draw spectrum (only if signal present)
             if (this.trackedAvgDb > NOISE_FLOOR) {
+                const normOffset = this.trackedAvgDb - this.viewerGainDb;
+
                 // Fill
                 ctx.beginPath();
                 let started = false;
                 for (const bin of displayBins) {
                     const x = freqToX(bin.freq);
-                    const y = dbToY(bin.db - this.trackedAvgDb);
+                    const y = dbToY(bin.db - normOffset);
                     if (!started) { ctx.moveTo(x, y); started = true; }
                     else ctx.lineTo(x, y);
                 }
@@ -458,7 +487,7 @@ export class FreqResponse {
                 started = false;
                 for (const bin of displayBins) {
                     const x = freqToX(bin.freq);
-                    const y = dbToY(bin.db - this.trackedAvgDb);
+                    const y = dbToY(bin.db - normOffset);
                     if (!started) { ctx.moveTo(x, y); started = true; }
                     else ctx.lineTo(x, y);
                 }

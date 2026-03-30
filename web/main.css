@@ -778,6 +778,42 @@ body {
     color: #000;
 }
 
+.eq-gain-group {
+    position: absolute;
+    bottom: calc(var(--eq-pad-bottom) + var(--eq-pad-inner));
+    right: var(--eq-pad-inner);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    z-index: 10;
+}
+
+.eq-gain-slot {
+    display: flex;
+    align-items: center;
+    order: 2;
+}
+
+.eq-gain-knob {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+.eq-gain-knob .knob-indicator {
+    top: 2px !important;
+    width: 3px !important;
+    height: 3px !important;
+}
+
+.eq-gain-label {
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    user-select: none;
+}
+
 .eq-scale-btn {
     position: absolute;
     top: 5px;
