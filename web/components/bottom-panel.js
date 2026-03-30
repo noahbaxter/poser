@@ -140,7 +140,11 @@ export function buildSwapMicSelect(swapRow, micOptions, paramId, param) {
 
     // --- State ---
     const range = param.max - param.min;
-    let lastMic = 1;  // remember last selected mic for restore
+    // Default to SM57 (find its value in the dropdown)
+    let lastMic = 1;
+    for (const opt of select.options) {
+        if (opt.textContent === 'SM57') { lastMic = parseInt(opt.value, 10); break; }
+    }
 
     function readParam() {
         return Math.round(param.min + getParameterNormalized(paramId) * range);
@@ -162,8 +166,8 @@ export function buildSwapMicSelect(swapRow, micOptions, paramId, param) {
     if (initVal > 0) lastMic = initVal;
     updateUI(initVal);
 
-    // ø click: toggle swap on/off
-    toggle.addEventListener('click', () => {
+    // Toggle group click: toggle swap on/off
+    toggleGroup.addEventListener('click', () => {
         const current = readParam();
         if (current > 0) {
             lastMic = current;

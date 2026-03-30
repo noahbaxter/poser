@@ -3,6 +3,14 @@ import { PositionSlider } from './components/controls/position-slider.js';
 import { buildBlendPanel, buildMasterControls, buildSwapMicSelect } from './components/bottom-panel.js';
 import { FreqResponse } from './components/freq-response.js';
 
+// ---- Theme toggle ----
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+    const html = document.documentElement;
+    const dark = html.getAttribute('data-theme') === 'dark';
+    html.setAttribute('data-theme', dark ? '' : 'dark');
+});
+
 // ---- Init: called by C++ with component data ----
 
 window.__poser_init__ = function(config) {
@@ -117,7 +125,7 @@ function buildUI(config) {
 
     function onBlendStateChange(s) {
         micTab.classList.toggle('disabled', !s.mic.enabled);
-        cabTab.classList.toggle('disabled', !s.cab.enabled && !s.speaker.enabled && !s.position.enabled);
+        // CAB tab never fades — it's always accessible
         posHeader.classList.toggle('disabled', !s.position.enabled);
     }
 
