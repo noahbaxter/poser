@@ -6980,18 +6980,18 @@ struct MicGroup {
     bool variantReverse;  // true = cycle bright→warm instead of warm→bright
 };
 
+static constexpr int kMicGroup_Vox_indices[] = { 19, 3, 22, 4, 12, 20, 17, 13 };
+static constexpr int kMicGroup_Inst_indices[] = { 0, 21, 4, 22, 16, 12, 11, 5, 3 };
+static constexpr int kMicGroup_Guit_indices[] = { 13, 16, 0, 17, 15, 26, 18, 14 };
 static constexpr int kMicGroup_Kick_indices[] = { 1, 13, 6, 10, 17, 7, 23, 2 };
 static constexpr int kMicGroup_Drum_indices[] = { 25, 14, 18, 8, 24, 9, 4, 5, 21, 13 };
-static constexpr int kMicGroup_Vox_indices[] = { 19, 3, 22, 4, 12, 20, 17, 13 };
-static constexpr int kMicGroup_Guit_indices[] = { 13, 16, 0, 17, 15, 26, 18, 14 };
-static constexpr int kMicGroup_Inst_indices[] = { 0, 21, 4, 22, 16, 12, 11, 5, 3 };
 
 static constexpr MicGroup kMicGroups[] = {
-    {"Kick", kMicGroup_Kick_indices, 8, nullptr, 0, false},
-    {"Drum", kMicGroup_Drum_indices, 10, nullptr, 0, true},
     {"Vox", kMicGroup_Vox_indices, 8, nullptr, 0, true},
+    {"Inst", kMicGroup_Inst_indices, 9, nullptr, 0, false},
     {"Guit", kMicGroup_Guit_indices, 8, nullptr, 0, false},
-    {"Inst", kMicGroup_Inst_indices, 9, nullptr, 0, false}
+    {"Kick", kMicGroup_Kick_indices, 8, nullptr, 0, false},
+    {"Drum", kMicGroup_Drum_indices, 10, nullptr, 0, true}
 };
 static constexpr int kNumMicGroups = 5;
 

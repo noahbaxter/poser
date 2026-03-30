@@ -337,4 +337,4 @@ MICS = {
 }
 
 # Group display order
-MIC_GROUPS = ["Kick", "Drum", "Vox", "Guit", "Inst"]
+MIC_GROUPS = ["Vox", "Inst", "Guit", "Kick", "Drum"]
