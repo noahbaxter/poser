@@ -491,7 +491,8 @@ body {
     padding-top: var(--bottom-pad);
     padding-bottom: var(--bottom-pad);
     /* SCALE group pokes into selector area by its full container height + padding */
-    margin-top: calc(-1 * (var(--master-knob-push) + var(--master-knob-gap) + var(--label-font) + var(--panel-gap) + var(--bottom-pad) + var(--right-panel-extra-overlap)));
+    /* knob + label + swap row (toggle + gaps + border) + padding */
+    margin-top: calc(-1 * (var(--master-knob-push) + var(--master-knob-gap) + var(--label-font) + var(--panel-gap) + var(--blend-toggle) + var(--panel-gap) + var(--panel-gap) + var(--bottom-pad) + var(--right-panel-extra-overlap)));
 }
 
 /* --- Blend panel --- */
@@ -500,6 +501,9 @@ body {
     display: flex;
     flex-direction: column;
     gap: var(--blend-panel-gap);
+    margin-top: calc(var(--panel-gap) * 2);
+    /* Match scale-group width: toggle + gap + label + gap + knob */
+    width: calc(var(--blend-toggle) + var(--panel-gap) + var(--blend-panel-label-w) + var(--panel-gap) + var(--blend-knob));
 }
 
 .blend-panel-row {
@@ -510,6 +514,9 @@ body {
 
 .blend-panel .blend-slot {
     width: auto;
+    flex-direction: column;
+    align-items: center;
+    height: auto;
 }
 
 .blend-toggle {
@@ -835,27 +842,19 @@ body {
     border-color: #888;
 }
 
-/* --- Swap mic selector --- */
+/* --- Scale group (knob + swap row, above blend panel) --- */
 
-.swap-mic-row {
+.scale-group {
     display: flex;
+    flex-direction: column;
     align-items: center;
     gap: var(--panel-gap);
-}
-
-.swap-mic-label {
-    font-size: 8px;
-    font-weight: 900;
-    letter-spacing: var(--letter-spacing);
-    color: var(--color-text-dim);
-    text-transform: uppercase;
-    user-select: none;
-    width: var(--blend-panel-label-w);
-    text-align: right;
+    /* Match blend row width: toggle + gap + label + gap + knob */
+    width: calc(var(--blend-toggle) + var(--panel-gap) + var(--blend-panel-label-w) + var(--panel-gap) + var(--blend-knob));
 }
 
 .swap-mic-select {
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 700;
     letter-spacing: 0.5px;
     background: #fff;
@@ -865,6 +864,15 @@ body {
     color: var(--color-text-dim);
     cursor: pointer;
     outline: none;
+    width: calc(100% + var(--separator-gap));
+    margin-left: calc(-0.5 * var(--separator-gap));
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.swap-mic-select.disabled {
+    opacity: 0.35;
+    pointer-events: none;
 }
 
 .swap-mic-select:hover {

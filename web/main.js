@@ -129,9 +129,9 @@ function buildUI(config) {
 
     const masterKnobs = buildMasterControls(config.params);
 
-    // Swap mic selector — tucked right after the MIC blend row
+    // Swap mic controls — toggle + dropdown in SCALE box
     buildSwapMicSelect(
-        rows.mic,
+        document.getElementById('swap-row'),
         micComp.options,
         'swap_mic_select',
         config.params['swap_mic_select'],

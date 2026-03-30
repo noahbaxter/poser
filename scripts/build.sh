@@ -12,6 +12,7 @@
 # Options:
 #   --install                          # Install to user library (default: on)
 #   --no-install                       # Skip installation
+#   --no-curves                        # Skip curve data regeneration
 #   --no-launch                        # (standalone) Build but don't launch
 #   --fg                               # (standalone) Launch in foreground
 
@@ -27,6 +28,7 @@ MODE="Release"
 INSTALL=true
 LAUNCH=true
 FOREGROUND=false
+CURVES=true
 
 for arg in "$@"; do
     case $arg in
@@ -54,6 +56,9 @@ for arg in "$@"; do
         --no-install)
             INSTALL=false
             ;;
+        --no-curves)
+            CURVES=false
+            ;;
         --no-launch)
             LAUNCH=false
             ;;
@@ -74,6 +79,7 @@ for arg in "$@"; do
             echo "Options:"
             echo "  --install      Install plugins to user library (default)"
             echo "  --no-install   Skip installation"
+            echo "  --no-curves    Skip curve data regeneration"
             echo "  --no-launch    (standalone) Build without launching"
             echo "  --fg           (standalone) Launch in foreground"
             exit 0
@@ -137,8 +143,8 @@ needs_reconfigure() {
     return 1
 }
 
-# Always regenerate curve data — deterministic, ~2s, cmake skips if unchanged
-if [ "$MODE" != "Clean" ] && [ "$MODE" != "Uninstall" ]; then
+# Regenerate curve data unless --no-curves or non-build mode
+if [ "$MODE" != "Clean" ] && [ "$MODE" != "Uninstall" ] && [ "$CURVES" = true ]; then
     echo -e "${YELLOW}Regenerating curve data...${NC}"
     python3 "$PROJECT_ROOT/tools/curves/manage.py" build
 fi

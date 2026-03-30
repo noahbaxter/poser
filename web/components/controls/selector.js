@@ -39,6 +39,7 @@ export class Selector {
 
         this.label = opts.label || null;
         this.labelFixed = opts.labelFixed !== false; // default: doesn't rotate
+        this._variantMemory = {}; // entryIdx → last variant offset
         this._build(container);
         this._bindDrag();
         this._readFromBackend();
@@ -184,7 +185,8 @@ export class Selector {
                     if (ent && ent.numVariants > 1) {
                         const badge = document.createElement('span');
                         badge.className = 'variant-badge';
-                        badge.textContent = `1/${ent.numVariants}`;
+                        const offset = this._variantMemory[indices[i]] || 0;
+                        badge.textContent = this._variantBadgeText(ent, offset);
                         el.appendChild(badge);
                     }
                 }
@@ -294,6 +296,13 @@ export class Selector {
 
     // --- Entry/variant helpers ---
 
+    _variantBadgeText(ent, offset) {
+        if (ent.variantLabels && ent.variantLabels[offset]) {
+            return ent.variantLabels[offset];
+        }
+        return `${offset + 1}/${ent.numVariants}`;
+    }
+
     // Which entry index owns a given flat global index?
     _entryForGlobal(globalIdx) {
         if (!this.entries) return globalIdx;
@@ -340,8 +349,15 @@ export class Selector {
         localIdx = ((localIdx % n) + n) % n;
         const idx = indices[localIdx];
 
-        // Map entry index → flat parameter index (use firstIndex)
-        const globalIdx = this.entries ? this.entries[idx].firstIndex : idx;
+        // Map entry index → flat parameter index (restore last variant)
+        let globalIdx;
+        if (this.entries) {
+            const ent = this.entries[idx];
+            const offset = Math.min(this._variantMemory[idx] || 0, ent.numVariants - 1);
+            globalIdx = ent.firstIndex + offset;
+        } else {
+            globalIdx = idx;
+        }
 
         this.currentGlobalIndex = globalIdx;
         this._highlightCurrent();
@@ -360,10 +376,15 @@ export class Selector {
         const ent = this.entries[entryIdx];
         if (ent.numVariants <= 1) return;
 
+        // Reverse variant direction for groups like Vox/Drum
+        const group = this.groups && this.groups[this.currentGroupIdx];
+        const dir = (group && group.variantReverse) ? -direction : direction;
+
         const offset = this.currentGlobalIndex - ent.firstIndex;
-        const newOffset = offset + direction;
+        const newOffset = offset + dir;
         if (newOffset < 0 || newOffset >= ent.numVariants) return;
 
+        this._variantMemory[entryIdx] = newOffset;
         this.currentGlobalIndex = ent.firstIndex + newOffset;
         this._highlightCurrent();
 
@@ -393,9 +414,9 @@ export class Selector {
                 const ent = this.entries[indices[j]];
                 const badge = el.querySelector('.variant-badge');
                 if (ent && ent.numVariants > 1) {
-                    const offset = (j === localIdx) ? this._currentVariantOffset() : 0;
+                    const offset = (j === localIdx) ? this._currentVariantOffset() : (this._variantMemory[indices[j]] || 0);
                     if (badge) {
-                        badge.textContent = `${offset + 1}/${ent.numVariants}`;
+                        badge.textContent = this._variantBadgeText(ent, offset);
                     }
                 }
             }
@@ -487,6 +508,12 @@ export class Selector {
     _readFromBackend() {
         const norm = getParameterNormalized(this.paramId);
         this.currentGlobalIndex = normToSelect(norm, this.maxVal);
+
+        // Seed variant memory from backend state
+        if (this.entries) {
+            const entIdx = this._entryForGlobal(this.currentGlobalIndex);
+            this._variantMemory[entIdx] = this.currentGlobalIndex - this.entries[entIdx].firstIndex;
+        }
 
         if (this.groups) {
             this.currentGroupIdx = this._findGroupForCurrent();

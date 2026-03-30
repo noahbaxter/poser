@@ -93,28 +93,34 @@ export function buildBlendPanel(blendPanelEl, blendConfig, params, selectors, sw
 }
 
 /**
- * Build a small "swap mic" dropdown: select which mic the source signal
- * was recorded with. Subtracts that mic's curve before adding the target.
+ * Build swap mic controls: a toggle + "SWAP" label + dropdown, placed
+ * in the SCALE box below the knob.  Styled to match the blend panel rows.
  * Value 0 = Off, 1..N = mic index (stored as 0-based in C++).
- * Inserted after afterRow in the DOM.
  */
-export function buildSwapMicSelect(afterRow, micOptions, paramId, param) {
-    const row = document.createElement('div');
-    row.className = 'swap-mic-row';
+export function buildSwapMicSelect(swapRow, micOptions, paramId, param) {
+    // Toggle box (matches .blend-toggle)
+    const toggle = document.createElement('div');
+    toggle.className = 'blend-toggle';
+    toggle.title = 'Swap \u2014 subtract a source mic before adding the target';
 
-    const label = document.createElement('div');
-    label.className = 'swap-mic-label';
-    label.textContent = 'SWAP';
-    row.appendChild(label);
+    // Label (same class as blend labels for alignment)
+    const lbl = document.createElement('div');
+    lbl.className = 'blend-panel-label';
+    lbl.textContent = 'SWP';
 
+    const toggleGroup = document.createElement('div');
+    toggleGroup.className = 'blend-toggle-group';
+    toggleGroup.appendChild(toggle);
+    toggleGroup.appendChild(lbl);
+
+    // Mic dropdown
     const select = document.createElement('select');
     select.className = 'swap-mic-select';
-    select.title = 'Swap — subtract a source mic before adding the target (for re-mic\'ing cab IRs)';
 
-    // Option 0 = Off
+    // Option 0 = Off (hidden — toggle handles on/off)
     const offOpt = document.createElement('option');
     offOpt.value = '0';
-    offOpt.textContent = '\u2014';  // em dash = "off"
+    offOpt.textContent = '\u2014';
     select.appendChild(offOpt);
 
     // Deduplicate mic names (variants share the same name)
@@ -124,31 +130,85 @@ export function buildSwapMicSelect(afterRow, micOptions, paramId, param) {
         if (seen.has(name)) continue;
         seen.add(name);
         const opt = document.createElement('option');
-        opt.value = String(i + 1);  // 1-based: 0 = off
+        opt.value = String(i + 1);
         opt.textContent = name;
         select.appendChild(opt);
     }
 
-    // Read initial value from backend
-    const range = param.max - param.min;
-    const initNorm = getParameterNormalized(paramId);
-    const initVal = Math.round(param.min + initNorm * range);
-    select.value = String(initVal);
+    swapRow.appendChild(toggleGroup);
+    swapRow.appendChild(select);
 
+    // --- State ---
+    const range = param.max - param.min;
+    let lastMic = 1;  // remember last selected mic for restore
+
+    function readParam() {
+        return Math.round(param.min + getParameterNormalized(paramId) * range);
+    }
+    function writeParam(val) {
+        parameterDragStarted(paramId);
+        setParameterNormalized(paramId, (val - param.min) / range);
+        parameterDragEnded(paramId);
+    }
+    function updateUI(val) {
+        const active = val > 0;
+        toggle.classList.toggle('active', active);
+        select.value = String(active ? val : lastMic);
+        select.classList.toggle('disabled', !active);
+    }
+
+    // Init from backend
+    const initVal = readParam();
+    if (initVal > 0) lastMic = initVal;
+    updateUI(initVal);
+
+    // ø click: toggle swap on/off
+    toggle.addEventListener('click', () => {
+        const current = readParam();
+        if (current > 0) {
+            lastMic = current;
+            writeParam(0);
+            updateUI(0);
+        } else {
+            writeParam(lastMic);
+            updateUI(lastMic);
+        }
+    });
+
+    // Dropdown change: select mic + activate
     select.addEventListener('change', () => {
         const val = parseInt(select.value, 10);
-        const norm = (val - param.min) / range;
-        parameterDragStarted(paramId);
-        setParameterNormalized(paramId, norm);
-        parameterDragEnded(paramId);
+        if (val > 0) lastMic = val;
+        writeParam(val);
+        updateUI(val);
     });
 
+    // Release focus after interaction so spacebar passes through to DAW transport
+    select.addEventListener('change', () => select.blur());
+    select.addEventListener('wheel', () => select.blur(), { passive: true });
+
+    // Scroll on dropdown to cycle through mics
+    // Collect non-off option values for cycling
+    const micValues = Array.from(select.options)
+        .map(o => parseInt(o.value, 10))
+        .filter(v => v > 0);
+
+    select.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (!micValues.length) return;
+        const current = parseInt(select.value, 10);
+        const idx = micValues.indexOf(current > 0 ? current : lastMic);
+        const dir = e.deltaY > 0 ? 1 : -1;
+        const next = micValues[Math.max(0, Math.min(micValues.length - 1, idx + dir))];
+        lastMic = next;
+        writeParam(next);
+        updateUI(next);
+    });
+
+    // Sync from backend
     onParameterChange(paramId, () => {
-        const norm = getParameterNormalized(paramId);
-        const val = Math.round(param.min + norm * range);
-        select.value = String(val);
+        const val = readParam();
+        if (val > 0) lastMic = val;
+        updateUI(val);
     });
-
-    row.appendChild(select);
-    afterRow.parentNode.insertBefore(row, afterRow);
 }
