@@ -14,7 +14,8 @@
 - [ ] `chore` **High/low rolloff detection in curve pipeline** — algorithmically detect where each curve's natural rolloff begins during compile, rather than relying on fixed taper points. Would improve character extraction accuracy.
 - [ ] `feature` **Curve mode toggle in UI** — boost-only / cut-only / both. Parameter exists in backend (curve_mode), zeroes negative or positive dB values. Niche but could be useful for surgical work. Needs a button/toggle in the UI.
 - [ ] `idea` **Speaker size parameter** — shift the LPF point based on theoretical speaker diameter (10"/12"/15"). Physical model: bigger cone = lower rolloff.
-- [ ] `design` **Reconsider character mode** — character extraction (subtracting average mic) can amplify differences for mics that are opposite to the average (e.g. kick mics get exaggerated presence cuts). Full mode is now the default. Consider whether character mode should be removed entirely, reworked, or just left as a niche option. The avg subtraction also makes swap mode identical in both modes since the average cancels out in subtraction.
+- [ ] `design` **Runtime safety taper instead of baked-in** — currently the cosine taper (<30Hz, >16kHz) is applied at compile time, which throws away real measured data at the extremes (some mics have good data down to 20Hz). Move taper to runtime, scaled with blend amount: no taper at 100%, increasing taper past 100% to prevent boosting garbage at extremes with high scale values. Compile should preserve the full measured range.
+- [ ] `design` **Fixed reference curve for character mode** — character extraction currently subtracts the average of the current mic roster, which means adding/removing a mic shifts every other mic's character. Replace with a fixed reference shape (e.g. "generic cardioid rolloff" or a fixed broadband tilt) that's stable regardless of roster changes. The average-subtraction approach also makes swap mode identical in both modes since the average cancels out in subtraction.
 - [ ] `idea` **Per-curve energy normalization** — currently each mic curve has different RMS energy (e602: 1.69, D12: 1.02). Switching between mics changes volume, not just shape. Could pre-normalize each curve to mag_RMS=1.0 at compile time so the blend knob only changes shape. Runtime CMP already does this on the combined output, but per-curve would make A/B comparison between mics more fair. Note: doesn't affect swap mode (differential curve is already near-unity).
 
 ## Icebox
@@ -97,3 +98,41 @@
 - Swap mode is magnitude-only — can't undo phase/time-domain characteristics of cab IRs
 - Character mode can produce larger curves than full mode for some mics (when mic is opposite to average)
 - RecordingHacks digitization limited by source image resolution (476x159px)
+
+### Datasheet vs RH/ATK curve discrepancies
+
+Investigated 2026-03-29. Some mics show significant differences between datasheet
+(guide-traced) and RH/ATK curves. Summary of findings:
+
+**M88** — Guide traced 3 proximity curves (2cm/10cm/1m) but curve 0 is the 2cm
+(+13dB bass boost), while RH curve 0 is the 1m far-field. Comparing the wrong
+curves against each other. Even matching the right pairs, avg error is ~1.6dB
+with ~9.5dB max at extremes — unclear if this is acceptable or indicates a
+deeper calibration issue. Guide freq_range [20, 30000] was tested vs [20, 20000]
+— 30kHz actually matches better despite axis labels ending at 20k.
+
+**MD421** — Guide freq_range [20, 30000] confirmed correct (0.23dB avg error vs RH
+with current config, 3.23dB if changed to [20, 20000]). Multiple bass control
+curves on datasheet may cause confusion about which is primary. Not a config bug.
+
+**SM81** — Genuine source disagreement. Datasheet flat curve is ±1.5dB (correct —
+SM81 is one of the flattest condensers made). RH shows ±9dB with a +7.4dB
+presence peak at 5kHz — completely different measurement. No dB rescaling fix
+helps. Guide plot_bounds [216, 41, 2362, 997] and db_range [20, -20] differ from
+registry [1051, 41, 2036, 998] / [10, -10] but the guide values appear to be
+the user-corrected versions.
+
+**E604** — Sennheiser absolute dBV scale (-40 to -90), normalizes correctly. Two
+curves (1m solid, 5cm dashed). Shape genuinely differs from RH — different
+measurement conditions. Not a config bug.
+
+**C414** — Three sources (ATK + DS + RH) all show a very flat mic but disagree on
+subtle details (presence peak location, HF rolloff). Datasheet ±2dB, ATK ±2dB,
+RH ±5dB. Mostly legitimate inter-source variation.
+
+**D4** — Three sources with somewhat different presence peak structure in 1-6kHz.
+Not a config bug, just source disagreement.
+
+**SM7B** — High-frequency "teeth" in the guide trace. SM7B is color black so
+digitize_guided uses the guide trace directly (no pixel refinement). Artifacts
+are from the hand-tracing itself — would need careful retrace above 8kHz.

@@ -198,10 +198,9 @@ MICS = {
         },
     },
     # --- AKG ---
-    "c12": {
-        "name": "C12", "groups": ["Vox", "Inst"],
+    "c12vr": {
+        "name": "C12VR", "groups": ["Vox", "Inst"],
         "rh_id": "0912",
-        # No datasheet available
     },
     "c414": {
         "name": "C414", "groups": ["Vox", "Drum", "Inst"],
@@ -218,10 +217,9 @@ MICS = {
             ],
         },
     },
-    "c451b": {
+    "c451": {
         "name": "C451", "groups": ["Drum", "Inst"],
         "rh_id": "0323",
-        # No datasheet available
     },
     "d112": {
         "name": "D112", "groups": ["Kick"],
@@ -237,10 +235,9 @@ MICS = {
             ],
         },
     },
-    "d12": {
-        "name": "D12", "groups": ["Kick"],
+    "d12vr": {
+        "name": "D12VR", "groups": ["Kick"],
         "rh_id": "1550",
-        # No datasheet available
     },
     "d2": {
         "name": "D2", "groups": ["Drum"],

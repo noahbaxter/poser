@@ -172,6 +172,13 @@ void PoserEditor::pushInitData()
         entry->setProperty("name", juce::String(::CurveData::kMicEntries[e].name));
         entry->setProperty("firstIndex", ::CurveData::kMicEntries[e].firstIndex);
         entry->setProperty("numVariants", ::CurveData::kMicEntries[e].numVariants);
+        if (::CurveData::kMicEntries[e].variantLabels != nullptr)
+        {
+            juce::Array<juce::var> labels;
+            for (int v = 0; v < ::CurveData::kMicEntries[e].numVariants; ++v)
+                labels.add(juce::String(::CurveData::kMicEntries[e].variantLabels[v]));
+            entry->setProperty("variantLabels", labels);
+        }
         micEntries.add(entry);
     }
     root->setProperty("micEntries", micEntries);
@@ -202,6 +209,7 @@ void PoserEditor::pushInitData()
             group->setProperty("tags", tags);
         }
 
+        group->setProperty("variantReverse", ::CurveData::kMicGroups[g].variantReverse);
         groups.add(group);
     }
     root->setProperty("micGroups", groups);

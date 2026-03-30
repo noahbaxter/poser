@@ -44,22 +44,38 @@ def load_atk_csv(path):
     return freqs, dbs
 
 
+def _resolve_curve_path(slug):
+    """Return the datasheet curve JSON path for a slug. No RH fallback."""
+    p = paths.datasheet_curve(slug)
+    return p if p.exists() else None
+
+
 def count_digitized_curves(slug):
-    """Returns how many curves exist in the digitized JSON."""
-    path = paths.find_curve(slug)
+    """Returns how many usable curves exist for this slug.
+
+    If the registry defines explicit curves, cap to that count so extraction
+    artifacts don't leak through as phantom variants.
+    """
+    path = _resolve_curve_path(slug)
     if path is None:
         return 0
     with open(path) as f:
         d = json.load(f)
     try:
-        return len(d["curves"]["single"]["curves"])
+        n_in_json = len(d["curves"]["single"]["curves"])
     except (KeyError, TypeError):
         return 0
+    # Cap to registry-defined curve count if specified
+    info = MICS.get(slug, {})
+    reg_curves = info.get("datasheet", {}).get("curves", [])
+    if reg_curves:
+        return min(n_in_json, len(reg_curves))
+    return n_in_json
 
 
 def load_digitized(slug, curve_index=0):
     """Returns (freqs, dbs) or (None, None)."""
-    path = paths.find_curve(slug)
+    path = _resolve_curve_path(slug)
     if path is None:
         return None, None
     with open(path) as f:
@@ -133,6 +149,61 @@ def apply_safety_taper(curve, target_freqs):
     return result
 
 
+# --- Spectral metrics ---
+
+def compute_spectral_metrics(mag_db, freqs):
+    """Compute lo_avg (50-200Hz) and hi_avg (3-12kHz) from a curve."""
+    lo_sum, lo_n, hi_sum, hi_n = 0.0, 0, 0.0, 0
+    for i, f in enumerate(freqs):
+        if 50 <= f <= 200:
+            lo_sum += mag_db[i]; lo_n += 1
+        if 3000 <= f <= 12000:
+            hi_sum += mag_db[i]; hi_n += 1
+    return (
+        lo_sum / lo_n if lo_n else 0.0,
+        hi_sum / hi_n if hi_n else 0.0,
+    )
+
+
+def auto_label_variant(lo, hi, rank, n):
+    """Generate a short label from spectral metrics and rank within the mic."""
+    if n == 1:
+        return ""
+    tilt = lo - hi
+    if n == 2:
+        return "warm" if rank == 0 else "bright"
+    # 3+ variants: use tonal descriptor
+    if tilt > 4:
+        return "warm"
+    if tilt > 1:
+        return "mid"
+    if tilt > -2:
+        return "neutral"
+    return "bright"
+
+
+def get_registry_labels(slug):
+    """Get variant labels from registry datasheet curves config."""
+    info = MICS.get(slug, {})
+    ds = info.get("datasheet", {})
+    curves = ds.get("curves", [])
+    return [c.get("label", "") for c in curves]
+
+
+# Per-group sort config: (metric, descending)
+# metric: "lo" = lo_avg, "hi" = hi_avg, "tilt" = lo-hi, "flat" = abs(tilt)
+GROUP_SORT = {
+    "Kick": ("lo", True),     # most bass first
+    "Drum": ("hi", True),     # most presence/attack first
+    "Vox":  ("hi", True),     # most presence/air first
+    "Guit": ("tilt", True),   # warmest first (ribbons → dynamics)
+    "Inst": ("flat", False),  # flattest first
+}
+
+# Groups where variant cycling should go bright→warm instead of warm→bright
+GROUP_VARIANT_REVERSE = {"Vox", "Drum"}
+
+
 # --- Build extracted_components.json ---
 
 def build_components():
@@ -159,6 +230,7 @@ def build_components():
         display_name = info["name"]
         has_atk = info.get("has_atk")
         n_digitized = count_digitized_curves(slug)
+        reg_labels = get_registry_labels(slug)
 
         variants = []
 
@@ -174,7 +246,9 @@ def build_components():
             interp_dbs = interpolate_to_grid(freqs, dbs, target_freqs)
             interp_dbs -= np.mean(interp_dbs)
             primary_mics[display_name] = {"magnitude_db": interp_dbs.tolist(), "source": "audio_test_kitchen"}
-            variants.append({"magnitude_db": interp_dbs.tolist(), "source": "audio_test_kitchen", "label": "1"})
+            # ATK primary corresponds to registry curves[0]
+            label = reg_labels[0] if reg_labels else ""
+            variants.append({"magnitude_db": interp_dbs.tolist(), "source": "audio_test_kitchen", "label": label})
             print(f"  {display_name}: ATK primary", end="")
 
             # Add digitized variants beyond index 0 — use same group reference
@@ -184,7 +258,8 @@ def build_components():
                     vdbs = vdbs - float(np.interp(1000, vfreqs, vdbs))
                     vinterp = interpolate_to_grid(vfreqs, vdbs, target_freqs)
                     vinterp -= np.mean(vinterp)
-                    variants.append({"magnitude_db": vinterp.tolist(), "source": "recordinghacks", "label": str(vi + 1)})
+                    label = reg_labels[vi] if vi < len(reg_labels) else ""
+                    variants.append({"magnitude_db": vinterp.tolist(), "source": "digitized", "label": label})
             if len(variants) > 1:
                 print(f" + {len(variants)-1} digitized variants")
             else:
@@ -203,12 +278,13 @@ def build_components():
                 dbs = dbs - group_ref
                 interp_dbs = interpolate_to_grid(freqs, dbs, target_freqs)
                 interp_dbs -= np.mean(interp_dbs)
-                variants.append({"magnitude_db": interp_dbs.tolist(), "source": "recordinghacks", "label": str(vi + 1)})
+                label = reg_labels[vi] if vi < len(reg_labels) else ""
+                variants.append({"magnitude_db": interp_dbs.tolist(), "source": "digitized", "label": label})
                 if vi == 0:
-                    primary_mics[display_name] = {"magnitude_db": interp_dbs.tolist(), "source": "recordinghacks"}
+                    primary_mics[display_name] = {"magnitude_db": interp_dbs.tolist(), "source": "digitized"}
 
             if variants:
-                print(f"  {display_name}: {len(variants)} curve(s) from RH ({slug})")
+                print(f"  {display_name}: {len(variants)} curve(s) from digitized ({slug})")
             else:
                 continue
 
@@ -222,17 +298,32 @@ def build_components():
 
     new_mics = {}
     for display_name, variants in variant_mics.items():
+        # Compute spectral metrics for all variants (on raw curves, before character extraction)
+        metrics = [compute_spectral_metrics(v["magnitude_db"], target_freqs.tolist()) for v in variants]
+        # Rank variants by spectral tilt (warmest first) for auto-labeling
+        tilts = [lo - hi for lo, hi in metrics]
+        rank_order = sorted(range(len(variants)), key=lambda i: -tilts[i])
+        ranks = [0] * len(variants)
+        for r, idx in enumerate(rank_order):
+            ranks[idx] = r
+
         processed_variants = []
-        for v in variants:
+        for vi, v in enumerate(variants):
             raw = np.array(v["magnitude_db"])
             character = raw - avg_curve
             tapered = apply_safety_taper(character, target_freqs)
             tapered_full = apply_safety_taper(raw, target_freqs)
+            lo, hi = metrics[vi]
+            # Use registry label if available, otherwise auto-generate
+            label = v["label"] if v["label"] else auto_label_variant(lo, hi, ranks[vi], len(variants))
             processed_variants.append({
                 "magnitude_db": tapered.tolist(),
                 "magnitude_db_full": tapered_full.tolist(),
                 "source": v["source"],
-                "label": v["label"],
+                "label": label,
+                "lo_avg": round(lo, 2),
+                "hi_avg": round(hi, 2),
+                "tilt": round(lo - hi, 2),
                 "peak_to_peak_db": float(np.ptp(tapered)),
                 "rms_db": float(np.sqrt(np.mean(tapered ** 2))),
             })
@@ -495,23 +586,46 @@ def generate_header():
 
         print(f"Mics: {len(flat_entries)} curves across {len(mic_sorted)} mics")
 
+        # Per-mic variant label arrays
+        for name in mic_sorted:
+            mic = mic_items[name]
+            variants = mic.get("variants", [mic])
+            if len(variants) <= 1:
+                continue
+            ident = sanitize_ident(name)
+            labels = [v.get("label", "") for v in variants]
+            label_strs = ", ".join(f'"{l}"' for l in labels)
+            out.append(f"static constexpr const char* kMicLabels_{ident}[] = {{ {label_strs} }};")
+        out.append("")
+
         # MicEntry table — groups variants per mic
         out.append("struct MicEntry {")
         out.append("    const char* name;")
         out.append("    int firstIndex;")
         out.append("    int numVariants;")
+        out.append("    const char* const* variantLabels;  // nullptr if single variant")
         out.append("};")
         out.append("")
 
         entry_list = []
         flat_idx = 0
         mic_entry_indices = {}  # name → entry index (for group lookups)
+        mic_entry_metrics = {}  # name → (lo_avg, hi_avg, tilt) of primary variant
         for ei, name in enumerate(mic_sorted):
             mic = mic_items[name]
             variants = mic.get("variants", [mic])
             nv = len(variants)
-            entry_list.append(f'    {{"{name}", {flat_idx}, {nv}}}')
+            ident = sanitize_ident(name)
+            labels_ref = f"kMicLabels_{ident}" if nv > 1 else "nullptr"
+            entry_list.append(f'    {{"{name}", {flat_idx}, {nv}, {labels_ref}}}')
             mic_entry_indices[name] = ei
+            # Store primary variant metrics for group sorting
+            v0 = variants[0]
+            mic_entry_metrics[name] = (
+                v0.get("lo_avg", 0.0),
+                v0.get("hi_avg", 0.0),
+                v0.get("tilt", 0.0),
+            )
             flat_idx += nv
 
         out.append("static constexpr MicEntry kMicEntries[] = {")
@@ -536,6 +650,7 @@ def generate_header():
         out.append("    int count;")
         out.append("    const MicGroupTag* tags;")
         out.append("    int numTags;")
+        out.append("    bool variantReverse;  // true = cycle bright→warm instead of warm→bright")
         out.append("};")
         out.append("")
 
@@ -555,9 +670,19 @@ def generate_header():
                         else:
                             untagged.append(idx)
 
-            # Sort: tagged first (grouped by tag, then alphabetically), then untagged
-            tagged.sort(key=lambda t: (t[1], t[0]))
-            untagged.sort()
+            # Sort by spectral metric for this group
+            metric_key, descending = GROUP_SORT.get(group_name, ("tilt", True))
+            def sort_key(idx):
+                name = mic_sorted[idx]
+                lo, hi, tilt = mic_entry_metrics.get(name, (0, 0, 0))
+                if metric_key == "lo": return lo
+                if metric_key == "hi": return hi
+                if metric_key == "tilt": return tilt
+                if metric_key == "flat": return abs(tilt)
+                return 0
+
+            tagged.sort(key=lambda t: (t[1], sort_key(t[0])), reverse=descending)
+            untagged.sort(key=sort_key, reverse=descending)
             ordered = [t[0] for t in tagged] + untagged
 
             ident = sanitize_ident(group_name)
@@ -576,6 +701,8 @@ def generate_header():
                         start = local_i
                 tag_ranges.append((cur_tag, start, len(tagged) - 1))
 
+            var_reverse = "true" if group_name in GROUP_VARIANT_REVERSE else "false"
+
             tag_arr_name = f"kMicGroup_{ident}_tags"
             if tag_ranges:
                 tag_entries = []
@@ -584,9 +711,9 @@ def generate_header():
                 out.append(f"static constexpr MicGroupTag {tag_arr_name}[] = {{")
                 out.append(",\n".join(tag_entries))
                 out.append("};")
-                group_entries.append(f'    {{"{group_name}", {arr_name}, {len(ordered)}, {tag_arr_name}, {len(tag_ranges)}}}')
+                group_entries.append(f'    {{"{group_name}", {arr_name}, {len(ordered)}, {tag_arr_name}, {len(tag_ranges)}, {var_reverse}}}')
             else:
-                group_entries.append(f'    {{"{group_name}", {arr_name}, {len(ordered)}, nullptr, 0}}')
+                group_entries.append(f'    {{"{group_name}", {arr_name}, {len(ordered)}, nullptr, 0, {var_reverse}}}')
 
         out.append("")
         out.append(f"static constexpr MicGroup kMicGroups[] = {{")

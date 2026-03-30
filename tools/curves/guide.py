@@ -558,6 +558,12 @@ def _build_mask_data(img_array, working_ds, guide_curves):
         "red": lambda rgb: ((rgb[:,:,0] > 80) &
                             (rgb[:,:,0].astype(int) - rgb[:,:,1].astype(int) > 15) &
                             (rgb[:,:,0].astype(int) - rgb[:,:,2].astype(int) > 15)),
+        # "any" matches dark (black) OR saturated (colored) pixels
+        "any": lambda rgb: (
+            ((rgb[:,:,0] < 80) & (rgb[:,:,1] < 80) & (rgb[:,:,2] < 80)) |
+            ((np.max(rgb, axis=2).astype(int) - np.min(rgb, axis=2).astype(int) > 40) &
+             (np.max(rgb, axis=2) > 80))
+        ),
     }
 
     full_mask = COLOR_TESTS.get(color_name, lambda _: np.zeros((plot_h, plot_w), dtype=bool))(plot_rgb)
@@ -1032,9 +1038,22 @@ def _detect_dominant_color(img_array, bounds):
         return "black"
 
     sat_pixels = crop[sat_mask]
-    avg_r = np.mean(sat_pixels[:, 0])
-    avg_g = np.mean(sat_pixels[:, 1])
-    avg_b = np.mean(sat_pixels[:, 2])
+    r_sat, g_sat, b_sat = sat_pixels[:, 0], sat_pixels[:, 1], sat_pixels[:, 2]
+
+    # Check if multiple distinct colors are present — if so, pixel refinement
+    # is unreliable. Count how many color channels dominate across pixels.
+    r_dom = np.sum((r_sat > g_sat) & (r_sat > b_sat))
+    g_dom = np.sum((g_sat > r_sat) & (g_sat > b_sat))
+    b_dom = np.sum((b_sat > r_sat) & (b_sat > g_sat))
+    total = len(sat_pixels)
+    # If no single channel dominates >70% of pixels, it's multi-color
+    # Use "any" so pixel refinement matches all curve colors
+    if max(r_dom, g_dom, b_dom) < total * 0.7:
+        return "any"
+
+    avg_r = np.mean(r_sat)
+    avg_g = np.mean(g_sat)
+    avg_b = np.mean(b_sat)
 
     if avg_b > avg_r and avg_b > avg_g:
         return "blue"
@@ -1187,7 +1206,7 @@ def _ask_color(ds_config):
     """Ask user for curve color, with default from registry."""
     default = ds_config.get("color", "black") if ds_config else "black"
     color_input = input(f"    Curve color [{default}]: ").strip().lower()
-    return color_input if color_input in ("black", "blue", "red") else default
+    return color_input if color_input in ("black", "blue", "red", "any") else default
 
 
 def _save_guide(slug, curves, freq_range, db_range, plot_bounds, color):
@@ -1516,9 +1535,9 @@ def guide_mic(slug, mic_config):
             if "db_range" in existing_guide:
                 db_guess = existing_guide["db_range"]
                 working_ds["db_range"] = db_guess
-            if "color" in existing_guide:
-                color_guess = existing_guide["color"]
-                working_ds["color"] = color_guess
+            # Re-detect color from image (don't trust stale saved value)
+            color_guess = _detect_dominant_color(img, plot_bounds)
+            working_ds["color"] = color_guess
 
     if curves is None:
         # New trace
@@ -1676,7 +1695,9 @@ def main(slugs=None):
         if missing:
             print(fmt.warn(f"Unknown slugs: {', '.join(missing)}"))
     else:
-        mics_to_do = {s: m for s, m in MICS.items() if "datasheet" in m}
+        # Include all mics that have a datasheet PNG (config or not)
+        mics_to_do = {s: m for s, m in MICS.items()
+                      if "datasheet" in m or paths.datasheet_original(s).exists()}
 
     print(fmt.bold(f"Guide tracer: {len(mics_to_do)} mics"))
     print(fmt.dim("Close window or press Enter to save, Q to skip"))

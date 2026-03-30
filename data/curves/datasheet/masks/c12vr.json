@@ -1,0 +1,17 @@
+{
+  "plot_bounds": [
+    192,
+    79,
+    1882,
+    622
+  ],
+  "freq_range": [
+    20,
+    20000
+  ],
+  "db_range": [
+    20.0,
+    -30.0
+  ],
+  "source": "datasheet"
+}

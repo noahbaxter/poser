@@ -856,6 +856,12 @@ COLOR_PRESETS = {
     "black": lambda r, g, b: r < 80 and g < 80 and b < 80,
     "blue":  lambda r, g, b: b > 100 and b - r > 20 and b - g > 20,
     "red":   lambda r, g, b: r > 100 and r - g > 20 and r - b > 20,
+    # "any" matches dark (black) OR saturated (colored) pixels — for multi-color curves.
+    # Excludes gray gridlines and white background.
+    "any":   lambda r, g, b: (
+        (r < 80 and g < 80 and b < 80) or                    # black segments
+        (max(r, g, b) - min(r, g, b) > 40 and max(r, g, b) > 80)  # colored segments
+    ),
 }
 
 
@@ -924,8 +930,8 @@ def digitize_datasheet(slug, ds_config, datasheets_dir):
     else:
         is_curve = COLOR_PRESETS[color_name]
 
-    # For black curves on black grids, require minimum cluster thickness
-    min_thickness = ds_config.get("min_thickness", 2 if color_name == "black" else 1)
+    # For black/any curves, require minimum cluster thickness to filter gridline noise
+    min_thickness = ds_config.get("min_thickness", 2 if color_name in ("black", "any") else 1)
 
     plot_w = right - left
     plot_h = bottom - top
@@ -1109,7 +1115,7 @@ def digitize_guided(slug, ds_config, guide_data, datasheets_dir, corridor_db=4.0
     plot_w = right - left
     plot_h = bottom - top
 
-    use_pixels = color_name not in ("black",)
+    use_pixels = color_name not in ("black",)  # "any", "blue", "red" all use pixel refinement
     if use_pixels:
         print(f"  Color '{color_name}' — using pixel refinement within ±{corridor_db}dB corridor")
         img = Image.open(ds_path).convert("RGB")
@@ -1242,9 +1248,9 @@ def cmd_prepare(args):
         ds = info.get("datasheet")
         rh_id = info.get("rh_id")
 
-        # Datasheet source
-        if ds:
-            ds_path = paths.datasheet_original(slug)
+        # Datasheet source — either explicit config or PNG in originals/
+        ds_path = paths.datasheet_original(slug)
+        if ds or ds_path.exists():
             if ds_path.exists():
                 print(fmt.heading(f"{name} ({slug})") + f"  {fmt.dim(f'[datasheet: {ds_path.name}]')}")
                 summary.append((slug, name, "datasheet", []))
@@ -1253,14 +1259,13 @@ def cmd_prepare(args):
                 print(fmt.heading(f"{name} ({slug})"))
                 print(fmt.warn(f"datasheet not found: {ds_path}"))
                 summary.append((slug, name, "datasheet_missing", []))
-                # Fall through to RH if available
+                continue
 
-        # RH source (fallback or primary if no datasheet)
+        # No datasheet PNG
         if not rh_id:
-            if not ds:
-                print(fmt.heading(f"{name} ({slug})"))
-                print(fmt.dim("  SKIP: no datasheet config and no rh_id"))
-                summary.append((slug, name, "no_source", []))
+            print(fmt.heading(f"{name} ({slug})"))
+            print(fmt.dim("  SKIP: no datasheet PNG and no rh_id"))
+            summary.append((slug, name, "no_source", []))
             continue
 
         source_path = paths.rh_original(slug)
@@ -1423,39 +1428,16 @@ def cmd_build(args):
             else:
                 print(fmt.warn(f"datasheet not found: {ds_path}, falling back"))
 
-        # Priority 3: RH source image
+        # No RH fallback — datasheet only
         if output is None:
-            source_path = paths.rh_original(slug)
-            if not source_path.exists() or source_path.stat().st_size == 0:
-                print(fmt.dim("  SKIP: no source available"))
-                continue
-
-            results = digitize_single(source_path)
-            curve_list = _results_to_curve_list(results)
-
-            output = {
-                "slug": slug,
-                "name": name,
-                "hand_edited": False,
-                "curves": {},
-            }
-            if curve_list:
-                output["curves"]["single"] = {
-                    "num_curves": len(curve_list),
-                    "curves": curve_list,
-                }
-            source_img = source_path
+            print(fmt.dim("  SKIP: no datasheet data (run 'manage.py build' to trace)"))
+            continue
 
         if output is None:
             continue
 
-        # Route output to source-specific directory
-        if mask_dir and mask_dir == paths.DATASHEET_MASKS:
-            target_dir = paths.DATASHEET_CURVES
-        elif ds and source_img and str(paths.DATASHEET_ORIGINALS) in str(source_img):
-            target_dir = paths.DATASHEET_CURVES
-        else:
-            target_dir = paths.RH_CURVES
+        # All output goes to datasheet curves directory
+        target_dir = paths.DATASHEET_CURVES
         target_dir.mkdir(parents=True, exist_ok=True)
         json_path = target_dir / f"{slug}.json"
         with open(json_path, "w") as f:

@@ -30,9 +30,38 @@ from guide import main as cmd_guide
 from registry import MICS
 
 
+def _find_untraced_mics():
+    """Find mics that have a datasheet PNG but no guide data yet."""
+    untraced = []
+    for slug in sorted(MICS):
+        png = paths.datasheet_original(slug)
+        if not png.exists():
+            continue
+        guide = paths.datasheet_guide(slug)
+        if not guide.exists():
+            untraced.append(slug)
+    return untraced
+
+
 def cmd_full_build(args):
-    """Digitize masks → compile extracted_components.json → generate CurveData.h"""
-    print(fmt.heading("Step 1: Digitize masks → JSON"))
+    """Full pipeline: guide untreated mics → digitize → compile → generate header."""
+    # Auto-detect mics that need tracing
+    untraced = _find_untraced_mics()
+    if args.slugs:
+        # If specific slugs given, only trace those that need it
+        untraced = [s for s in untraced if s in args.slugs]
+
+    if untraced:
+        print(fmt.heading(f"Step 0: Trace {len(untraced)} new datasheet(s)"))
+        print(fmt.dim(f"  {', '.join(untraced)}"))
+        try:
+            cmd_guide(slugs=untraced)
+        except KeyboardInterrupt:
+            plt.close("all")
+            print(f"\n{fmt.warn('Interrupted.')}")
+            return
+
+    print(fmt.heading("Step 1: Digitize guides → JSON"))
     cmd_build(args)
 
     print(fmt.heading("Step 2: Compile curves → extracted_components.json"))
