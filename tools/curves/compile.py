@@ -11,6 +11,7 @@ import re
 
 import numpy as np
 
+import fmt
 import paths
 from registry import MICS, MIC_GROUPS
 
@@ -164,21 +165,23 @@ def build_components():
         if has_atk:
             csv_path = paths.atk_original(slug)
             if not csv_path.exists():
-                print(f"  SKIP {display_name}: {csv_path} not found")
+                print(fmt.warn(f"SKIP {display_name}: {csv_path} not found"))
                 continue
             freqs, dbs = load_atk_csv(csv_path)
-            dbs = normalize_at_1k(freqs, dbs)
+            # ATK primary sets the group reference
+            group_ref = float(np.interp(1000, freqs, dbs))
+            dbs = dbs - group_ref
             interp_dbs = interpolate_to_grid(freqs, dbs, target_freqs)
             interp_dbs -= np.mean(interp_dbs)
             primary_mics[display_name] = {"magnitude_db": interp_dbs.tolist(), "source": "audio_test_kitchen"}
             variants.append({"magnitude_db": interp_dbs.tolist(), "source": "audio_test_kitchen", "label": "1"})
             print(f"  {display_name}: ATK primary", end="")
 
-            # Add digitized variants beyond index 0 (ATK replaces index 0)
+            # Add digitized variants beyond index 0 — use same group reference
             for vi in range(1, n_digitized):
                 vfreqs, vdbs = load_digitized(slug, vi)
                 if vfreqs is not None:
-                    vdbs = normalize_at_1k(vfreqs, vdbs)
+                    vdbs = vdbs - float(np.interp(1000, vfreqs, vdbs))
                     vinterp = interpolate_to_grid(vfreqs, vdbs, target_freqs)
                     vinterp -= np.mean(vinterp)
                     variants.append({"magnitude_db": vinterp.tolist(), "source": "recordinghacks", "label": str(vi + 1)})
@@ -187,14 +190,17 @@ def build_components():
             else:
                 print()
         else:
-            # All curves from digitized
+            # All curves from digitized — normalize group at primary curve's 1kHz
+            group_ref = None
             for vi in range(max(1, n_digitized)):
                 freqs, dbs = load_digitized(slug, vi)
                 if freqs is None:
                     if vi == 0:
-                        print(f"  SKIP {display_name}: {slug}.json not found")
+                        print(fmt.warn(f"SKIP {display_name}: {slug}.json not found"))
                     break
-                dbs = normalize_at_1k(freqs, dbs)
+                if group_ref is None:
+                    group_ref = float(np.interp(1000, freqs, dbs))
+                dbs = dbs - group_ref
                 interp_dbs = interpolate_to_grid(freqs, dbs, target_freqs)
                 interp_dbs -= np.mean(interp_dbs)
                 variants.append({"magnitude_db": interp_dbs.tolist(), "source": "recordinghacks", "label": str(vi + 1)})
@@ -239,8 +245,8 @@ def build_components():
         json.dump(data, f, indent=2)
 
     total_variants = sum(len(m["variants"]) for m in new_mics.values())
-    print(f"Replaced {old_mic_count} mics with {len(new_mics)} ({total_variants} total curves)")
-    print(f"Wrote {paths.COMPONENTS_JSON}")
+    print(f"  Replaced {old_mic_count} mics with {len(new_mics)} ({total_variants} total curves)")
+    print(fmt.ok(f"Wrote {paths.COMPONENTS_JSON}"))
 
 
 # --- Generate CurveData.h ---
@@ -595,4 +601,4 @@ def generate_header():
 
     paths.HEADER_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     paths.HEADER_OUTPUT.write_text("\n".join(out))
-    print(f"Wrote {paths.HEADER_OUTPUT}")
+    print(fmt.ok(f"Wrote {paths.HEADER_OUTPUT}"))

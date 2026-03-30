@@ -2,18 +2,12 @@
 """Mic curve management — the one script to run.
 
 Usage:
-    python3 tools/curves/manage.py prepare    Download sources + export masks
-    python3 tools/curves/manage.py build      Digitize → compile → generate header
+    python3 tools/curves/manage.py prepare          Download sources + export masks
+    python3 tools/curves/manage.py build [slugs...]  Digitize → compile → generate header
+    python3 tools/curves/manage.py guide <slugs...>  Interactive curve tracer
+    python3 tools/curves/manage.py preview [slugs...] Show curves overlaid on source
 
-Workflow:
-    1. Add mic to registry.py (RH ID, slug, display name)
-    2. Run 'prepare' — downloads source image, exports red pixel mask
-    3. If the mask has multiple curves (proximity variants, switch positions):
-       - Open data/curves/recordinghacks/masks/{slug}.png in an image editor
-       - Make copies, erase unwanted lines in each
-       - Save as {slug}_1.png, {slug}_2.png, etc.
-    4. Run 'build' — digitizes all masks, compiles into plugin data
-    5. Rebuild the plugin
+Aliases: view → preview, trace → guide
 """
 
 import argparse
@@ -28,6 +22,7 @@ from PIL import Image
 # Run from the tools/curves/ directory so relative imports work
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import fmt
 import paths
 from digitize import cmd_prepare, cmd_build
 from compile import build_components, generate_header
@@ -37,25 +32,16 @@ from registry import MICS
 
 def cmd_full_build(args):
     """Digitize masks → compile extracted_components.json → generate CurveData.h"""
-    print("=" * 60)
-    print("Step 1: Digitize masks → JSON")
-    print("=" * 60)
+    print(fmt.heading("Step 1: Digitize masks → JSON"))
     cmd_build(args)
 
-    print()
-    print("=" * 60)
-    print("Step 2: Compile curves → extracted_components.json")
-    print("=" * 60)
+    print(fmt.heading("Step 2: Compile curves → extracted_components.json"))
     build_components()
 
-    print()
-    print("=" * 60)
-    print("Step 3: Generate CurveData.h")
-    print("=" * 60)
+    print(fmt.heading("Step 3: Generate CurveData.h"))
     generate_header()
 
-    print()
-    print("Done. Rebuild the plugin to hear the new curves.")
+    print(fmt.ok("Done. Rebuild the plugin to hear the new curves."))
 
 
 def cmd_preview(args):
@@ -64,13 +50,13 @@ def cmd_preview(args):
 
     for slug in slugs:
         if slug not in MICS:
-            print(f"Unknown slug: {slug}")
+            print(fmt.err(f"Unknown slug: {slug}"))
             continue
 
         info = MICS[slug]
         dig_path = paths.find_curve(slug)
         if dig_path is None or not dig_path.exists():
-            print(f"{slug}: no digitized data (run build first)")
+            print(fmt.warn(f"{slug}: no digitized data (run build first)"))
             continue
 
         with open(dig_path) as f:
@@ -78,7 +64,7 @@ def cmd_preview(args):
 
         curves_data = dig.get("curves", {}).get("single", {}).get("curves", [])
         if not curves_data:
-            print(f"{slug}: no curves in digitized data")
+            print(fmt.warn(f"{slug}: no curves in digitized data"))
             continue
 
         # Find source image
@@ -135,14 +121,22 @@ def cmd_preview(args):
             ax_curve.semilogx(atk_f, atk_d, color="#00bb00", linewidth=2.5,
                               alpha=0.8, label="ATK lab", zorder=2)
 
+        # Normalize group at 1kHz using first curve as reference
+        ref_db = 0
+        first_pts = curves_data[0].get("data", [])
+        if first_pts:
+            ref_f = np.array([p["hz"] for p in first_pts])
+            ref_d = np.array([p["db"] for p in first_pts])
+            ref_db = float(np.interp(1000, ref_f, ref_d))
+
         # Plot digitized curves
         colors = ["#dd0000", "#0044dd", "#dd00dd", "#dd6600"]
         for i, curve in enumerate(curves_data):
             pts = curve.get("data", [])
             if not pts:
                 continue
-            freqs = [p["hz"] for p in pts]
-            dbs = [p["db"] for p in pts]
+            freqs = np.array([p["hz"] for p in pts])
+            dbs = np.array([p["db"] for p in pts]) - ref_db
             src_label = curve.get("source", "")
             note = curve.get("note", "")
             label = f"#{i} {note} ({src_label}, {len(pts)} pts)".strip()
@@ -156,6 +150,8 @@ def cmd_preview(args):
         ax_curve.set_title("Digitized curves", fontsize=11)
         ax_curve.legend(loc="upper left", fontsize=9)
         ax_curve.grid(True, which="both", alpha=0.3)
+        from guide import _format_freq_axis
+        _format_freq_axis(ax_curve)
         plt.tight_layout()
 
     if slugs:
@@ -163,18 +159,29 @@ def cmd_preview(args):
 
 
 def main():
+    # Resolve aliases before argparse sees them
+    aliases = {"view": "preview", "trace": "guide"}
+    if len(sys.argv) > 1 and sys.argv[1] in aliases:
+        sys.argv[1] = aliases[sys.argv[1]]
+
     parser = argparse.ArgumentParser(
         description="Mic curve management",
-        epilog="Edit registry.py to add/remove mics.",
+        epilog="Aliases: view → preview, trace → guide\n\nEdit registry.py to add/remove mics.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("prepare", help="Download sources, export masks")
-    build_parser = sub.add_parser("build", help="Digitize → compile → generate header (full pipeline)")
-    build_parser.add_argument("slugs", nargs="*", help="Specific mic slugs (default: all)")
-    guide_parser = sub.add_parser("guide", help="Interactive guide tracer for datasheets")
-    guide_parser.add_argument("slugs", nargs="*", help="Specific mic slugs (default: all)")
-    preview_parser = sub.add_parser("preview", help="Show digitized curves vs source image")
-    preview_parser.add_argument("slugs", nargs="*", help="Specific mic slugs (default: all)")
+
+    sub.add_parser("prepare", help="Download source images and export red-pixel masks")
+
+    build_p = sub.add_parser("build", help="Full pipeline: digitize → compile → generate C++ header")
+    build_p.add_argument("slugs", nargs="*", help="Specific mic slugs (default: all)")
+
+    guide_p = sub.add_parser("guide", help="Interactive curve tracer (opens matplotlib windows)")
+    guide_p.add_argument("slugs", nargs="*", help="Mic slugs to trace")
+    guide_p.add_argument("--all", action="store_true", help="Process all mics with datasheet config")
+
+    preview_p = sub.add_parser("preview", help="Show digitized curves overlaid on source images")
+    preview_p.add_argument("slugs", nargs="*", help="Specific mic slugs (default: all)")
 
     args = parser.parse_args()
 
@@ -183,13 +190,40 @@ def main():
     elif args.command == "build":
         cmd_full_build(args)
     elif args.command == "guide":
-        sys.argv = ["guide"] + (args.slugs or [])
-        cmd_guide()
+        if args.slugs:
+            slugs = args.slugs
+        elif args.all:
+            slugs = []  # empty = all mics
+        else:
+            # Default: continue where we left off — unbuilt mics with datasheet config
+            unbuilt = [s for s, m in MICS.items()
+                       if "datasheet" in m
+                       and (paths.find_curve(s) is None or not paths.find_curve(s).exists())]
+            if not unbuilt:
+                print(fmt.ok("All mics with datasheets are already built."))
+                print(fmt.dim("  Use --all to re-process, or pass specific slugs."))
+                sys.exit(0)
+            print(fmt.dim(f"  Continuing with {len(unbuilt)} unbuilt mic(s)..."))
+            slugs = sorted(unbuilt)
+        try:
+            cmd_guide(slugs=slugs)
+        except KeyboardInterrupt:
+            plt.close("all")
+            print(f"\n{fmt.warn('Interrupted.')}")
     elif args.command == "preview":
-        cmd_preview(args)
+        try:
+            cmd_preview(args)
+        except KeyboardInterrupt:
+            plt.close("all")
+            print(f"\n{fmt.warn('Interrupted.')}")
     else:
         parser.print_help()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        plt.close("all")
+        print(f"\n{fmt.warn('Interrupted.')}")
+        sys.exit(1)

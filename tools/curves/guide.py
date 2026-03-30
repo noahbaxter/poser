@@ -31,10 +31,27 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from registry import MICS
+import fmt
 import paths
 
 # Colors for successive curves
 CURVE_COLORS = ["#ff2222", "#22dd22", "#ffcc00", "#ff00ff", "#00ccff", "#ff8800"]
+
+# Standard frequency ticks for log-scale plots
+_FREQ_TICKS = [20, 30, 50, 70, 100, 150, 200, 300, 500, 700,
+               1000, 1500, 2000, 3000, 5000, 7000, 10000, 15000, 20000]
+_FREQ_LABELS = ["20", "30", "50", "70", "100", "150", "200", "300", "500", "700",
+                "1k", "1.5k", "2k", "3k", "5k", "7k", "10k", "15k", "20k"]
+
+def _format_freq_axis(ax):
+    """Apply readable frequency tick labels to a semilogx axis."""
+    from matplotlib.ticker import FixedLocator, FixedFormatter
+    lo, hi = ax.get_xlim()
+    ticks = [f for f in _FREQ_TICKS if lo * 0.9 <= f <= hi * 1.1]
+    labels = [_FREQ_LABELS[_FREQ_TICKS.index(f)] for f in ticks]
+    ax.xaxis.set_major_locator(FixedLocator(ticks))
+    ax.xaxis.set_major_formatter(FixedFormatter(labels))
+    ax.xaxis.set_minor_locator(FixedLocator([]))  # no minor ticks
 
 
 def _px_to_freq(x_crop, left, right, freq_lo, freq_hi):
@@ -63,7 +80,231 @@ def _db_to_px(db, top, bottom, db_top, db_bottom):
     return t * (bottom - top)
 
 
-class GuideTracer:
+class InteractiveViewer:
+    """Base class for matplotlib viewers with zoom, pan, and Ctrl+C handling.
+
+    Subclasses call _setup_view(fig, ax) after creating the figure and displaying
+    content. This connects events and stores view limits. Override any of:
+        _on_press(event)   — left/middle click (right-click pan handled here)
+        _on_motion(event)  — mouse move (pan motion handled here)
+        _on_release(event) — button release (pan release handled here)
+        _on_scroll(event)  — plain scroll (Cmd+scroll zoom handled here)
+        _on_key(event)     — key press
+    """
+
+    def _setup_view(self, fig, ax):
+        self.fig = fig
+        self.ax = ax
+        self._full_xlim = ax.get_xlim()
+        self._full_ylim = ax.get_ylim()
+        self._pan_start = None
+
+        fig.canvas.mpl_connect("button_press_event", self._base_on_press)
+        fig.canvas.mpl_connect("motion_notify_event", self._base_on_motion)
+        fig.canvas.mpl_connect("button_release_event", self._base_on_release)
+        fig.canvas.mpl_connect("scroll_event", self._base_on_scroll)
+        fig.canvas.mpl_connect("key_press_event", self._on_key)
+        fig.canvas.mpl_connect("key_release_event", self._on_key_release)
+
+    def _base_on_press(self, event):
+        if event.inaxes != self.ax:
+            return
+        if event.button == 3:
+            self._pan_start = (event.xdata, event.ydata)
+            return
+        self._on_press(event)
+
+    def _base_on_motion(self, event):
+        if self._pan_start and event.inaxes == self.ax and event.xdata and event.ydata:
+            dx = self._pan_start[0] - event.xdata
+            dy = self._pan_start[1] - event.ydata
+            xlim = self.ax.get_xlim()
+            ylim = self.ax.get_ylim()
+            self.ax.set_xlim(xlim[0] + dx, xlim[1] + dx)
+            self.ax.set_ylim(ylim[0] + dy, ylim[1] + dy)
+            self.fig.canvas.draw_idle()
+            return
+        self._on_motion(event)
+
+    def _base_on_release(self, event):
+        if event.button == 3:
+            self._pan_start = None
+            return
+        self._on_release(event)
+
+    def _base_on_scroll(self, event):
+        if event.key in ("control", "ctrl+control", "super", "cmd"):
+            if event.button == "up":
+                self._zoom(event, 0.7)
+            elif event.button == "down":
+                self._zoom(event, 1.4)
+            return
+        self._on_scroll(event)
+
+    def _zoom(self, event, factor):
+        if event.inaxes != self.ax:
+            return
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+        cur_w = xlim[1] - xlim[0]
+        cur_h = ylim[0] - ylim[1]
+        full_w = self._full_xlim[1] - self._full_xlim[0]
+        full_h = self._full_ylim[0] - self._full_ylim[1]
+        new_w = cur_w * factor
+        new_h = cur_h * factor
+        if new_w >= full_w or new_h >= full_h:
+            self.ax.set_xlim(self._full_xlim)
+            self.ax.set_ylim(self._full_ylim)
+            self.fig.canvas.draw_idle()
+            return
+        cx, cy = event.xdata, event.ydata
+        fx = (cx - xlim[0]) / cur_w
+        fy = (cy - ylim[1]) / cur_h
+        self.ax.set_xlim(cx - fx * new_w, cx + (1 - fx) * new_w)
+        self.ax.set_ylim(cy + (1 - fy) * new_h, cy - fy * new_h)
+        self.fig.canvas.draw_idle()
+
+    def _show(self):
+        """Call plt.show() with Ctrl+C cleanup. Re-raises KeyboardInterrupt."""
+        try:
+            plt.show()
+        except KeyboardInterrupt:
+            plt.close(self.fig)
+            raise
+
+    # Default no-ops — subclasses override as needed
+    def _on_press(self, event): pass
+    def _on_motion(self, event): pass
+    def _on_release(self, event): pass
+    def _on_scroll(self, event): pass
+    def _on_key(self, event): pass
+    def _on_key_release(self, event): pass
+
+
+class BoundsAdjuster(InteractiveViewer):
+    """Adjust plot bounds on the full datasheet image.
+
+    Drag edges/corners of the red rectangle to adjust. Enter to confirm.
+    """
+
+    EDGE_GRAB = 15  # pixels from edge to start dragging
+
+    def __init__(self, img_array, slug, plot_bounds):
+        self.img = img_array
+        self.bounds = list(plot_bounds)  # [left, top, right, bottom]
+        self.confirmed = False
+        self._dragging = None  # which edge/corner: "left", "top", "right", "bottom", "move", or tuple
+
+        fig, ax = plt.subplots(1, 1, figsize=(14, 8))
+        fig.canvas.manager.set_window_title(f"Adjust bounds: {slug}")
+        ax.imshow(img_array, aspect="auto")
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        from matplotlib.patches import Rectangle
+        l, t, r, b = self.bounds
+        self._rect = Rectangle((l, t), r - l, b - t,
+                                linewidth=2, edgecolor="#ff4444", facecolor=(1, 0, 0, 0.08),
+                                linestyle="--", zorder=5)
+        ax.add_patch(self._rect)
+        ax.set_title("Drag edges to adjust plot bounds · Enter=confirm · Q=skip", fontsize=10)
+
+        self._setup_view(fig, ax)
+
+    def _hit_test(self, x, y):
+        """Return which part of the rect the cursor is near."""
+        l, t, r, b = self.bounds
+        g = self.EDGE_GRAB
+        on_left = abs(x - l) < g and t - g < y < b + g
+        on_right = abs(x - r) < g and t - g < y < b + g
+        on_top = abs(y - t) < g and l - g < x < r + g
+        on_bottom = abs(y - b) < g and l - g < x < r + g
+
+        if on_left and on_top: return "lt"
+        if on_right and on_top: return "rt"
+        if on_left and on_bottom: return "lb"
+        if on_right and on_bottom: return "rb"
+        if on_left: return "left"
+        if on_right: return "right"
+        if on_top: return "top"
+        if on_bottom: return "bottom"
+        if l < x < r and t < y < b: return "move"
+        return None
+
+    def _on_press(self, event):
+        if event.button != MouseButton.LEFT:
+            return
+        hit = self._hit_test(event.xdata, event.ydata)
+        if hit:
+            self._dragging = hit
+            self._drag_origin = (event.xdata, event.ydata)
+            self._bounds_origin = list(self.bounds)
+
+    def _on_motion(self, event):
+        if not self._dragging or event.inaxes != self.ax:
+            return
+        dx = event.xdata - self._drag_origin[0]
+        dy = event.ydata - self._drag_origin[1]
+        ol, ot, or_, ob = self._bounds_origin
+        h, w = self.img.shape[:2]
+        d = self._dragging
+
+        if d == "move":
+            bw, bh = or_ - ol, ob - ot
+            nl = max(0, min(w - bw, ol + dx))
+            nt = max(0, min(h - bh, ot + dy))
+            self.bounds = [int(nl), int(nt), int(nl + bw), int(nt + bh)]
+        else:
+            nl, nt, nr, nb = ol, ot, or_, ob
+            if "left" in d or d == "lt" or d == "lb":
+                nl = max(0, min(or_ - 20, ol + dx))
+            if "right" in d or d == "rt" or d == "rb":
+                nr = max(ol + 20, min(w, or_ + dx))
+            if "top" in d or d == "lt" or d == "rt":
+                nt = max(0, min(ob - 20, ot + dy))
+            if "bottom" in d or d == "lb" or d == "rb":
+                nb = max(ot + 20, min(h, ob + dy))
+            self.bounds = [int(nl), int(nt), int(nr), int(nb)]
+
+        l, t, r, b = self.bounds
+        self._rect.set_xy((l, t))
+        self._rect.set_width(r - l)
+        self._rect.set_height(b - t)
+        self.fig.canvas.draw_idle()
+
+    def _on_release(self, event):
+        self._dragging = None
+
+    def _on_key(self, event):
+        if event.key == "enter":
+            self.confirmed = True
+            plt.close(self.fig)
+        elif event.key in ("q", "escape"):
+            plt.close(self.fig)
+
+    def run(self):
+        self._show()
+        if self.confirmed:
+            return self.bounds
+        return None
+
+
+def _adjust_and_trace(img, slug, working_ds):
+    """Show bounds adjuster, then trace. Updates working_ds in place.
+
+    Returns curves list or None if skipped.
+    """
+    adjuster = BoundsAdjuster(img, slug, working_ds["plot_bounds"])
+    new_bounds = adjuster.run()
+    if new_bounds is None:
+        return None
+    working_ds["plot_bounds"] = new_bounds
+
+    tracer = GuideTracer(img, slug, working_ds)
+    return tracer.run()
+
+
+class GuideTracer(InteractiveViewer):
     """Interactive matplotlib widget for tracing curves on a datasheet image."""
 
     DRAG_THRESHOLD = 4  # pixels of movement before click becomes drag
@@ -83,48 +324,41 @@ class GuideTracer:
 
         # State
         self.points = []           # current curve: list of (x_crop, y_crop)
+        self._redo_stack = []      # popped points for redo
         self.completed = []        # finished curves: list of point lists
         self._press_xy = None      # (x, y) of mouse press for drag detection
         self._is_drag = False
+        self._z_held = False       # debounce Z key
         self.skipped = False
 
         # Set up figure
-        self.fig, self.ax = plt.subplots(1, 1, figsize=(14, 7))
-        self.fig.canvas.manager.set_window_title(f"Guide: {slug}")
-        self.ax.imshow(self.crop, aspect="auto")
-        self._set_title()
-        self._add_axis_labels()
+        fig, ax = plt.subplots(1, 1, figsize=(14, 7))
+        fig.canvas.manager.set_window_title(f"Guide: {slug}")
+        ax.imshow(self.crop, aspect="auto")
+        self._set_title_on(ax)
+        self._add_axis_labels_on(ax)
 
         # Line artists for current curve
         ci = 0
-        self.dot_artist, = self.ax.plot([], [], ".", color=CURVE_COLORS[ci],
-                                        markersize=4, zorder=5)
-        self.line_artist, = self.ax.plot([], [], "-", color=CURVE_COLORS[ci],
-                                         linewidth=1.5, alpha=0.8, zorder=4)
+        self.dot_artist, = ax.plot([], [], ".", color=CURVE_COLORS[ci],
+                                   markersize=4, zorder=5)
+        self.line_artist, = ax.plot([], [], "-", color=CURVE_COLORS[ci],
+                                    linewidth=1.5, alpha=0.8, zorder=4)
 
         # Artists for completed curves (added dynamically)
         self.completed_artists = []
 
-        # Store full view limits for zoom clamping
-        self._full_xlim = self.ax.get_xlim()
-        self._full_ylim = self.ax.get_ylim()
+        self._setup_view(fig, ax)
 
-        # Connect events
-        self.fig.canvas.mpl_connect("button_press_event", self._on_press)
-        self.fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
-        self.fig.canvas.mpl_connect("button_release_event", self._on_release)
-        self.fig.canvas.mpl_connect("key_press_event", self._on_key)
-        self.fig.canvas.mpl_connect("scroll_event", self._on_scroll)
-
-    def _set_title(self):
+    def _set_title_on(self, ax):
         n = len(self.completed) + 1
-        self.ax.set_title(
+        ax.set_title(
             f"{self.slug} — curve #{n}  |  "
-            "click/drag to trace · Z=undo · C=clear · N=next curve · Enter=done · Q=skip",
+            "click/drag to trace · Z=undo · X=redo · C=clear · N=next curve · Enter=done · Q=skip",
             fontsize=10,
         )
 
-    def _add_axis_labels(self):
+    def _add_axis_labels_on(self, ax):
         freq_ticks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000]
         freq_labels = ["20", "50", "100", "200", "500", "1k", "2k", "5k", "10k", "20k"]
         x_pos, x_lab = [], []
@@ -133,31 +367,31 @@ class GuideTracer:
                 px = _freq_to_px(f, self.left, self.right, self.freq_lo, self.freq_hi)
                 x_pos.append(px)
                 x_lab.append(lab)
-        self.ax.set_xticks(x_pos)
-        self.ax.set_xticklabels(x_lab)
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(x_lab)
 
         db_range = abs(self.db_top - self.db_bottom)
         step = 5 if db_range <= 40 else 10
         lo, hi = sorted([self.db_top, self.db_bottom])
         for db in np.arange(lo, hi + 1, step):
             py = _db_to_px(db, self.top, self.bottom, self.db_top, self.db_bottom)
-            self.ax.axhline(py, color="#ffffff", linewidth=0.3, alpha=0.3)
+            ax.axhline(py, color="#ffffff", linewidth=0.3, alpha=0.3)
         db_vals = np.arange(lo, hi + 1, step)
         y_pos = [_db_to_px(d, self.top, self.bottom, self.db_top, self.db_bottom) for d in db_vals]
-        self.ax.set_yticks(y_pos)
-        self.ax.set_yticklabels([f"{d:+.0f}" for d in db_vals])
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels([f"{d:+.0f}" for d in db_vals])
 
     # --- Mouse events ---
 
     def _on_press(self, event):
-        if event.inaxes != self.ax or event.button != MouseButton.LEFT:
+        if event.button != MouseButton.LEFT:
             return
         self._press_xy = (event.xdata, event.ydata)
         self._is_drag = False
 
     def _on_motion(self, event):
         if self._press_xy is None or event.inaxes != self.ax:
-            return
+            return  # left-click drag only
         x, y = event.xdata, event.ydata
         px, py = self._press_xy
         if not self._is_drag:
@@ -189,6 +423,7 @@ class GuideTracer:
             if math.hypot(x - lx, y - ly) < self.THIN_DISTANCE:
                 return
         self.points.append((x, y))
+        self._redo_stack.clear()
         self._redraw()
 
     # --- Keyboard events ---
@@ -201,15 +436,27 @@ class GuideTracer:
             self._finish_curve()
             self._start_new_curve()
         elif event.key in ("z", "ctrl+z", "super+z", "cmd+z"):
+            if self._z_held:
+                return  # debounce: one undo per keypress
+            self._z_held = True
             if self.points:
-                self.points.pop()
+                self._redo_stack.append(self.points.pop())
+                self._redraw()
+        elif event.key in ("x", "ctrl+shift+z", "super+shift+z", "cmd+shift+z"):
+            if self._redo_stack:
+                self.points.append(self._redo_stack.pop())
                 self._redraw()
         elif event.key == "c":
+            self._redo_stack.extend(reversed(self.points))
             self.points.clear()
             self._redraw()
         elif event.key in ("q", "escape"):
             self.skipped = True
             plt.close(self.fig)
+
+    def _on_key_release(self, event):
+        if event.key in ("z", "ctrl+z", "super+z", "cmd+z"):
+            self._z_held = False
 
     # --- Curve management ---
 
@@ -235,40 +482,8 @@ class GuideTracer:
                                         markersize=4, zorder=5)
         self.line_artist, = self.ax.plot([], [], "-", color=CURVE_COLORS[ci],
                                          linewidth=1.5, alpha=0.8, zorder=4)
-        self._set_title()
+        self._set_title_on(self.ax)
         self._redraw()
-
-    # --- Zoom ---
-
-    def _on_scroll(self, event):
-        if event.key in ("control", "ctrl+control", "super", "cmd"):
-            if event.button == "up":
-                self._zoom(event, 0.7)
-            elif event.button == "down":
-                self._zoom(event, 1.4)
-
-    def _zoom(self, event, factor):
-        if event.inaxes != self.ax:
-            return
-        xlim = self.ax.get_xlim()
-        ylim = self.ax.get_ylim()
-        cur_w = xlim[1] - xlim[0]
-        cur_h = ylim[0] - ylim[1]
-        full_w = self._full_xlim[1] - self._full_xlim[0]
-        full_h = self._full_ylim[0] - self._full_ylim[1]
-        new_w = cur_w * factor
-        new_h = cur_h * factor
-        if new_w >= full_w or new_h >= full_h:
-            self.ax.set_xlim(self._full_xlim)
-            self.ax.set_ylim(self._full_ylim)
-            self.fig.canvas.draw_idle()
-            return
-        cx, cy = event.xdata, event.ydata
-        fx = (cx - xlim[0]) / cur_w
-        fy = (cy - ylim[1]) / cur_h
-        self.ax.set_xlim(cx - fx * new_w, cx + (1 - fx) * new_w)
-        self.ax.set_ylim(cy + (1 - fy) * new_h, cy - fy * new_h)
-        self.fig.canvas.draw_idle()
 
     # --- Display ---
 
@@ -299,7 +514,7 @@ class GuideTracer:
 
     def run(self):
         """Show the window, block until closed. Returns list of curve dicts or None."""
-        plt.show()
+        self._show()
         if self.skipped or not self.completed:
             return None
         curves = []
@@ -384,7 +599,7 @@ def _mask_to_image(curve_mask, plot_h, plot_w):
     return img
 
 
-class CorridorTuner:
+class CorridorTuner(InteractiveViewer):
     """Interactive corridor width tuner — adjust how tight the mask is before editing.
 
     Scroll or Up/Down to adjust corridor width. Enter to accept.
@@ -400,22 +615,18 @@ class CorridorTuner:
         self.corridor_px = max(5, plot_h // 20)  # ~5% of plot height
         self.done = False
 
-        self.fig, self.ax = plt.subplots(1, 1, figsize=(16, 6))
-        self.fig.canvas.manager.set_window_title(f"Corridor: {slug}")
+        fig, ax = plt.subplots(1, 1, figsize=(16, 6))
+        fig.canvas.manager.set_window_title(f"Corridor: {slug}")
 
         # Initial render
         masked = _apply_corridor(full_mask, guide_interp, self.corridor_px, plot_h, plot_w)
         self.img_data = _mask_to_image(masked, plot_h, plot_w)
-        self.im_artist = self.ax.imshow(self.img_data, aspect="equal")
-        self.ax.set_xticks([])
-        self.ax.set_yticks([])
+        self.im_artist = ax.imshow(self.img_data, aspect="equal")
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        self._setup_view(fig, ax)
         self._update_title(masked)
-
-        self._full_xlim = self.ax.get_xlim()
-        self._full_ylim = self.ax.get_ylim()
-
-        self.fig.canvas.mpl_connect("scroll_event", self._on_scroll)
-        self.fig.canvas.mpl_connect("key_press_event", self._on_key)
 
     def _update_title(self, masked=None):
         px_count = int(np.sum(masked)) if masked is not None else "?"
@@ -437,36 +648,7 @@ class CorridorTuner:
         self.corridor_px = max(2, self.corridor_px + delta)
         self._recompute()
 
-    def _zoom(self, event, factor):
-        if event.inaxes != self.ax:
-            return
-        xlim = self.ax.get_xlim()
-        ylim = self.ax.get_ylim()
-        cur_w = xlim[1] - xlim[0]
-        cur_h = ylim[0] - ylim[1]
-        full_w = self._full_xlim[1] - self._full_xlim[0]
-        full_h = self._full_ylim[0] - self._full_ylim[1]
-        new_w = cur_w * factor
-        new_h = cur_h * factor
-        if new_w >= full_w or new_h >= full_h:
-            self.ax.set_xlim(self._full_xlim)
-            self.ax.set_ylim(self._full_ylim)
-            self.fig.canvas.draw_idle()
-            return
-        cx, cy = event.xdata, event.ydata
-        fx = (cx - xlim[0]) / cur_w
-        fy = (cy - ylim[1]) / cur_h
-        self.ax.set_xlim(cx - fx * new_w, cx + (1 - fx) * new_w)
-        self.ax.set_ylim(cy + (1 - fy) * new_h, cy - fy * new_h)
-        self.fig.canvas.draw_idle()
-
     def _on_scroll(self, event):
-        if event.key in ("control", "ctrl+control", "super", "cmd"):
-            if event.button == "up":
-                self._zoom(event, 0.7)
-            elif event.button == "down":
-                self._zoom(event, 1.4)
-            return
         step = max(2, self.corridor_px // 5)
         if event.button == "up":
             self._adjust(step)
@@ -486,7 +668,7 @@ class CorridorTuner:
             self._adjust(-step)
 
     def run(self):
-        plt.show()
+        self._show()
         return self.img_data if self.done else None
 
 
@@ -538,7 +720,7 @@ def _generate_mask(img_array, working_ds, guide_curves, slug):
     return mask_paths
 
 
-class MaskEditor:
+class MaskEditor(InteractiveViewer):
     """Interactive mask editor — erase stray pixels from a generated mask.
 
     Controls:
@@ -548,8 +730,6 @@ class MaskEditor:
         Z                — undo last stroke
         Enter            — save and close
         Q/Escape         — discard changes and close
-
-    Zoom/pan: use the matplotlib toolbar buttons (magnifier, arrows).
     """
 
     def __init__(self, mask_path):
@@ -561,42 +741,40 @@ class MaskEditor:
         self.brush_size = 8
         self.erasing = False
         self.saved = False
-        self._pan_start = None  # for right-click pan
 
-        self.fig, self.ax = plt.subplots(1, 1, figsize=(16, 6))
+        fig, ax = plt.subplots(1, 1, figsize=(16, 6))
         # Disable default toolbar to avoid conflicting with our controls
-        self.fig.canvas.toolbar.pack_forget() if hasattr(self.fig.canvas.toolbar, 'pack_forget') else None
-        self.fig.canvas.manager.set_window_title(f"Mask Editor: {mask_path.name}")
-        self.im_artist = self.ax.imshow(self.img_array, aspect="equal")
-        self._update_title()
-        self.ax.set_xticks([])
-        self.ax.set_yticks([])
-
-        # Store full view limits for reset
-        h, w = self.img_array.shape[:2]
-        self._full_xlim = (-0.5, w - 0.5)
-        self._full_ylim = (h - 0.5, -0.5)
+        fig.canvas.toolbar.pack_forget() if hasattr(fig.canvas.toolbar, 'pack_forget') else None
+        fig.canvas.manager.set_window_title(f"Mask Editor: {mask_path.name}")
+        self.im_artist = ax.imshow(self.img_array, aspect="equal")
+        self._update_title_on(ax)
+        ax.set_xticks([])
+        ax.set_yticks([])
 
         # Brush cursor (circle)
         self.cursor = plt.Circle((0, 0), self.brush_size, fill=False,
                                   color="blue", linewidth=1, visible=False)
-        self.ax.add_patch(self.cursor)
+        ax.add_patch(self.cursor)
 
-        self.fig.canvas.mpl_connect("button_press_event", self._on_press)
-        self.fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
-        self.fig.canvas.mpl_connect("button_release_event", self._on_release)
-        self.fig.canvas.mpl_connect("scroll_event", self._on_scroll)
-        self.fig.canvas.mpl_connect("key_press_event", self._on_key)
+        self._setup_view(fig, ax)
 
-    def _update_title(self):
+        # Override full view limits for image bounds
+        h, w = self.img_array.shape[:2]
+        self._full_xlim = (-0.5, w - 0.5)
+        self._full_ylim = (h - 0.5, -0.5)
+
+    def _update_title_on(self, ax):
         red_count = np.sum((self.img_array[:,:,0] > 180) &
                            (self.img_array[:,:,1] < 120) &
                            (self.img_array[:,:,2] < 120))
-        self.ax.set_title(
+        ax.set_title(
             f"brush={self.brush_size}px · scroll=size · ⌘scroll=zoom · "
             f"right-drag=pan · R=reset · Z=undo · Enter=save · {red_count} px",
             fontsize=10,
         )
+
+    def _update_title(self):
+        self._update_title_on(self.ax)
 
     def _erase_at(self, x, y):
         if x is None or y is None:
@@ -626,13 +804,6 @@ class MaskEditor:
         self.fig.canvas.draw_idle()
 
     def _on_press(self, event):
-        if event.inaxes != self.ax:
-            return
-        # Right click = start pan
-        if event.button == 3:
-            self._pan_start = (event.xdata, event.ydata)
-            return
-        # Left click = erase
         if event.button != 1:
             return
         self.undo_stack.append(self.img_array.copy())
@@ -643,17 +814,6 @@ class MaskEditor:
         self._refresh()
 
     def _on_motion(self, event):
-        # Pan with right-click drag (skip cursor update for performance)
-        if self._pan_start and event.inaxes == self.ax and event.xdata and event.ydata:
-            dx = self._pan_start[0] - event.xdata
-            dy = self._pan_start[1] - event.ydata
-            xlim = self.ax.get_xlim()
-            ylim = self.ax.get_ylim()
-            self.ax.set_xlim(xlim[0] + dx, xlim[1] + dx)
-            self.ax.set_ylim(ylim[0] + dy, ylim[1] + dy)
-            self.fig.canvas.draw_idle()
-            return
-
         if self.erasing and event.inaxes == self.ax:
             self.cursor.center = (event.xdata, event.ydata)
             self.cursor.set_visible(True)
@@ -671,65 +831,12 @@ class MaskEditor:
         self.fig.canvas.draw_idle()
 
     def _on_release(self, event):
-        if event.button == 3:
-            self._pan_start = None
-            return
         if self.erasing:
             self.erasing = False
             self._update_title()
             self._refresh()
 
-    def _zoom(self, event, factor):
-        """Zoom in toward cursor, zoom out toward image center."""
-        if event.inaxes != self.ax:
-            return
-
-        xlim = self.ax.get_xlim()
-        ylim = self.ax.get_ylim()
-        cur_w = xlim[1] - xlim[0]
-        cur_h = ylim[0] - ylim[1]  # inverted for images
-
-        full_w = self._full_xlim[1] - self._full_xlim[0]
-        full_h = self._full_ylim[0] - self._full_ylim[1]
-
-        new_w = cur_w * factor
-        new_h = cur_h * factor
-
-        # Clamp: don't zoom out past full image
-        if new_w >= full_w or new_h >= full_h:
-            self.ax.set_xlim(self._full_xlim)
-            self.ax.set_ylim(self._full_ylim)
-            self._refresh()
-            return
-
-        if factor < 1:
-            # Zoom IN: keep the cursor point fixed on screen.
-            # The cursor position should map to the same pixel before and after.
-            cx, cy = event.xdata, event.ydata
-            # How far (0-1) is the cursor within the current view?
-            fx = (cx - xlim[0]) / cur_w
-            fy = (cy - ylim[1]) / cur_h  # ylim[1] is the top (smaller y)
-            self.ax.set_xlim(cx - fx * new_w, cx + (1 - fx) * new_w)
-            self.ax.set_ylim(cy + (1 - fy) * new_h, cy - fy * new_h)
-        else:
-            # Zoom OUT: same logic — keep cursor point fixed on screen
-            cx, cy = event.xdata, event.ydata
-            fx = (cx - xlim[0]) / cur_w
-            fy = (cy - ylim[1]) / cur_h
-            self.ax.set_xlim(cx - fx * new_w, cx + (1 - fx) * new_w)
-            self.ax.set_ylim(cy + (1 - fy) * new_h, cy - fy * new_h)
-
-        self._refresh()
-
     def _on_scroll(self, event):
-        # Ctrl/Cmd + scroll = zoom
-        if event.key in ("control", "ctrl+control", "super", "cmd"):
-            if event.button == "up":
-                self._zoom(event, 0.7)  # zoom in
-            elif event.button == "down":
-                self._zoom(event, 1.4)  # zoom out
-            return
-
         # Plain scroll = brush size (proportional steps)
         step = max(3, self.brush_size // 3)
         if event.button == "up":
@@ -774,7 +881,7 @@ class MaskEditor:
         print(f"  Saved cleaned mask: {self.mask_path.name} ({red_count} red pixels)")
 
     def run(self):
-        plt.show()
+        self._show()
         return self.saved
 
 
@@ -893,6 +1000,7 @@ def _show_comparison(slug, mic_config, ds_config, guide_data):
     ax_dig.set_title("Comparison", fontsize=12, fontweight="bold")
     ax_dig.legend(loc="upper left", fontsize=9, framealpha=0.9)
     ax_dig.grid(True, which="both", alpha=0.3)
+    _format_freq_axis(ax_dig)
 
     plt.tight_layout()
 
@@ -1109,10 +1217,171 @@ def _load_guide(slug):
         return json.load(f)
 
 
+class CurvePreview(InteractiveViewer):
+    """Preview extracted curves — Enter to accept, R to redo masks."""
+
+    ACCEPT = "accept"
+    REDO_MASKS = "redo"
+    RETRACE = "retrace"
+
+    def __init__(self, slug, full_img, plot_bounds, all_curves, freq_lo, freq_hi, db_top, db_bottom):
+        self.result = self.ACCEPT
+
+        fig, (ax_img, ax_curve) = plt.subplots(2, 1, figsize=(14, 8),
+                                                gridspec_kw={"height_ratios": [1, 1.2]})
+        fig.canvas.manager.set_window_title(f"Preview: {slug}")
+
+        ax_img.imshow(full_img, aspect="auto")
+        if plot_bounds:
+            from matplotlib.patches import Rectangle
+            l, t, r, b = plot_bounds
+            rect = Rectangle((l, t), r - l, b - t,
+                              linewidth=2, edgecolor="#ff4444", facecolor="none",
+                              linestyle="--", zorder=5)
+            ax_img.add_patch(rect)
+        ax_img.set_title(f"{slug} — datasheet (red = plot bounds)", fontsize=12, fontweight="bold")
+        ax_img.set_xticks([])
+        ax_img.set_yticks([])
+
+        colors = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6"]
+        for i, c in enumerate(all_curves):
+            pts = c.get("data", [])
+            if not pts:
+                continue
+            freqs = [p["hz"] for p in pts]
+            dbs = [p["db"] for p in pts]
+            ax_curve.semilogx(freqs, dbs, color=colors[i % len(colors)],
+                              linewidth=2, label=f"Curve {i} ({len(pts)} pts)")
+
+        ax_curve.set_xlim(max(10, freq_lo * 0.8), freq_hi * 1.2)
+        ax_curve.set_ylim(db_bottom - 2, db_top + 2)
+        ax_curve.axhline(0, color="gray", linewidth=0.5, linestyle="--")
+        ax_curve.set_xlabel("Frequency (Hz)")
+        ax_curve.set_ylabel("dB")
+        ax_curve.set_title("Enter=accept · R=redo (retrace) · M=tweak masks", fontsize=11)
+        ax_curve.legend(loc="lower right", fontsize=9)
+        ax_curve.grid(True, which="both", alpha=0.3)
+        _format_freq_axis(ax_curve)
+
+        plt.tight_layout()
+        self._setup_view(fig, ax_curve)
+
+    def _on_key(self, event):
+        if event.key == "enter":
+            self.result = self.ACCEPT
+            plt.close(self.fig)
+        elif event.key in ("r", "R"):
+            self.result = self.RETRACE
+            plt.close(self.fig)
+        elif event.key in ("m", "M"):
+            self.result = self.REDO_MASKS
+            plt.close(self.fig)
+        elif event.key in ("q", "escape"):
+            self.result = self.ACCEPT
+            plt.close(self.fig)
+
+    def run(self):
+        self._show()
+        return self.result
+
+
+class GuideReview(InteractiveViewer):
+    """Review saved guide/curves — Enter to continue, R to redo, Q to skip."""
+
+    RESUME = "resume"
+    REDO = "redo"
+    SKIP = "skip"
+
+    def __init__(self, slug, full_img, plot_bounds, is_built,
+                 existing_guide=None, built_curve_path=None,
+                 guide_freq=None, guide_db=None):
+        # Default depends on whether already built
+        self.result = self.SKIP if is_built else self.RESUME
+
+        fig, (ax_img, ax_curve) = plt.subplots(2, 1, figsize=(14, 8),
+                                                gridspec_kw={"height_ratios": [1, 1]})
+        fig.canvas.manager.set_window_title(f"Review: {slug}")
+        ax_img.imshow(full_img, aspect="auto")
+        from matplotlib.patches import Rectangle
+        gl, gt, gr, gb = plot_bounds
+        rect = Rectangle((gl, gt), gr - gl, gb - gt,
+                          linewidth=2, edgecolor="#ff4444", facecolor="none",
+                          linestyle="--", zorder=5)
+        ax_img.add_patch(rect)
+        ax_img.set_title(f"{slug} — datasheet (red = plot bounds)", fontsize=11)
+        ax_img.set_xticks([])
+        ax_img.set_yticks([])
+
+        colors_list = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6"]
+
+        if is_built and built_curve_path:
+            with open(built_curve_path) as f:
+                dig = json.load(f)
+            dig_curves = dig.get("curves", {}).get("single", {}).get("curves", [])
+            for ci, dc in enumerate(dig_curves):
+                pts = dc.get("data", [])
+                if pts:
+                    freqs = [p["hz"] for p in pts]
+                    dbs = [p["db"] for p in pts]
+                    note = dc.get("note", f"Curve {ci}")
+                    ax_curve.semilogx(freqs, dbs, color=colors_list[ci % len(colors_list)],
+                                      linewidth=2, label=f"{note} ({len(pts)} pts)")
+        else:
+            for ci, gc in enumerate(existing_guide.get("curves", [])):
+                pts = gc.get("points", [])
+                if pts:
+                    gfreqs = [p[0] for p in pts]
+                    gdbs = [p[1] for p in pts]
+                    label_text = gc.get("label", f"Curve {ci}")
+                    ax_curve.semilogx(gfreqs, gdbs, color=colors_list[ci % len(colors_list)],
+                                      linewidth=2, label=f"{label_text} ({len(pts)} pts)")
+
+        if is_built:
+            ax_curve.set_title("Enter=skip (already built) · R=redo · C=resume from guide", fontsize=10)
+        else:
+            ax_curve.set_title("Enter=resume from guide · R=redo · Q=skip", fontsize=10)
+
+        ax_curve.set_xlim(max(10, guide_freq[0] * 0.8), guide_freq[1] * 1.2)
+        ax_curve.set_ylim(guide_db[1] - 2, guide_db[0] + 2)
+        ax_curve.axhline(0, color="gray", linewidth=0.5, linestyle="--")
+        ax_curve.set_xlabel("Frequency (Hz)")
+        ax_curve.set_ylabel("dB")
+        ax_curve.legend(loc="lower right", fontsize=9)
+        ax_curve.grid(True, which="both", alpha=0.3)
+        _format_freq_axis(ax_curve)
+        plt.tight_layout()
+
+        self._is_built = is_built
+        self._setup_view(fig, ax_curve)
+
+    def _on_key(self, event):
+        if event.key == "enter":
+            # default: skip if built, resume if not
+            self.result = self.SKIP if self._is_built else self.RESUME
+            plt.close(self.fig)
+        elif event.key in ("r", "R"):
+            self.result = self.REDO
+            plt.close(self.fig)
+        elif event.key in ("c", "C"):
+            # continue/resume even if built
+            self.result = self.RESUME
+            plt.close(self.fig)
+        elif event.key in ("q", "escape"):
+            self.result = self.SKIP
+            plt.close(self.fig)
+
+    def run(self):
+        self._show()
+        return self.result
+
+
 def _preview_curve(slug, img, mask_paths, cal_data):
     """Digitize masks and show resulting curve overlaid on datasheet.
 
-    Returns True if user accepts, False to redo masks.
+    Returns (action, curves):
+        ("accept", [...])  — user accepted
+        ("redo", None)     — redo masks
+        ("retrace", None)  — retrace from scratch
     """
     from digitize import _digitize_mask, _results_to_curve_list
 
@@ -1125,55 +1394,17 @@ def _preview_curve(slug, img, mask_paths, cal_data):
 
     if not all_curves:
         print("  WARNING: no curves extracted from masks")
-        return False
+        return CurvePreview.REDO_MASKS, None
 
-    # Show overlay
-    left, top, right, bottom = cal_data["plot_bounds"]
+    plot_bounds = cal_data["plot_bounds"]
     freq_lo, freq_hi = cal_data["freq_range"]
     db_top, db_bottom = cal_data["db_range"]
-    cropped = img[top:bottom, left:right]
 
-    fig, (ax_img, ax_curve) = plt.subplots(2, 1, figsize=(14, 8),
-                                            gridspec_kw={"height_ratios": [1, 1.2]})
-    fig.canvas.manager.set_window_title(f"Preview: {slug}")
-
-    ax_img.imshow(cropped, aspect="auto")
-    ax_img.set_title(f"{slug} — datasheet", fontsize=12, fontweight="bold")
-    ax_img.set_xticks([])
-    ax_img.set_yticks([])
-
-    colors = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6"]
-    for i, c in enumerate(all_curves):
-        pts = c.get("data", [])
-        if not pts:
-            continue
-        freqs = [p["hz"] for p in pts]
-        dbs = [p["db"] for p in pts]
-        ax_curve.semilogx(freqs, dbs, color=colors[i % len(colors)],
-                          linewidth=2, label=f"Curve {i} ({len(pts)} pts)")
-
-    ax_curve.set_xlim(max(10, freq_lo * 0.8), freq_hi * 1.2)
-    ax_curve.set_ylim(db_bottom - 2, db_top + 2)
-    ax_curve.axhline(0, color="gray", linewidth=0.5, linestyle="--")
-    ax_curve.set_xlabel("Frequency (Hz)")
-    ax_curve.set_ylabel("dB")
-    ax_curve.set_title(f"Extracted curve(s) — close window to continue", fontsize=11)
-    ax_curve.legend(loc="lower right", fontsize=9)
-    ax_curve.grid(True, which="both", alpha=0.3)
-    ticks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000]
-    visible = [t for t in ticks if freq_lo * 0.8 <= t <= freq_hi * 1.2]
-    ax_curve.set_xticks(visible)
-    ax_curve.set_xticklabels([f"{t//1000}k" if t >= 1000 else str(t) for t in visible])
-
-    plt.tight_layout()
-    plt.ion()
-    fig.show()
-    fig.canvas.flush_events()
-
-    response = input("  Accept curve? (Y/n/redo-masks): ").strip().lower()
-    plt.close(fig)
-    plt.ioff()
-    return response not in ("n", "no", "redo", "redo-masks")
+    preview = CurvePreview(slug, img, plot_bounds, all_curves, freq_lo, freq_hi, db_top, db_bottom)
+    result = preview.run()
+    if result == CurvePreview.ACCEPT:
+        return result, all_curves
+    return result, None
 
 
 def guide_mic(slug, mic_config):
@@ -1202,7 +1433,7 @@ def guide_mic(slug, mic_config):
         print(f"  {slug}: datasheet not found: {img_path}")
         return False
 
-    print(f"\n=== {slug} ({mic_config['name']}) ===")
+    print(fmt.heading(f"{slug} ({mic_config['name']})"))
     img = np.array(Image.open(img_path).convert("RGB"))
 
     # Auto-detect plot bounds
@@ -1247,59 +1478,35 @@ def guide_mic(slug, mic_config):
     if existing_guide:
         n_curves = len(existing_guide.get("curves", []))
         n_points = sum(len(c.get("points", [])) for c in existing_guide.get("curves", []))
-        print(f"  Found saved guide: {n_curves} curve(s), {n_points} points")
 
-        # Show saved trace overlaid on datasheet so user can judge quality
+        # Check if this mic already has a built curve (guide was already processed)
+        built_curve = paths.find_curve(slug)
+        is_built = built_curve is not None and built_curve.exists()
+
+        if is_built:
+            print(fmt.dim(f"  Saved guide: {n_curves} curve(s), {n_points} pts — already built"))
+        else:
+            print(f"  Saved guide: {n_curves} curve(s), {n_points} pts — {fmt.yellow('not yet built')}")
+
         guide_bounds = existing_guide.get("plot_bounds", plot_bounds)
-        gl, gt, gr, gb = guide_bounds
         guide_freq = existing_guide.get("freq_range", freq_guess)
         guide_db = existing_guide.get("db_range", db_guess)
-        cropped = img[gt:gb, gl:gr]
 
-        fig, (ax_img, ax_curve) = plt.subplots(2, 1, figsize=(14, 7),
-                                                gridspec_kw={"height_ratios": [1, 1]})
-        fig.canvas.manager.set_window_title(f"Saved guide: {slug}")
-        ax_img.imshow(cropped, aspect="auto")
-        ax_img.set_title(f"{slug} — datasheet", fontsize=11)
-        ax_img.set_xticks([])
-        ax_img.set_yticks([])
+        review = GuideReview(slug, img, guide_bounds, is_built,
+                             existing_guide=existing_guide,
+                             built_curve_path=built_curve,
+                             guide_freq=guide_freq, guide_db=guide_db)
+        choice = review.run()
 
-        colors_list = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6"]
-        for ci, gc in enumerate(existing_guide.get("curves", [])):
-            pts = gc.get("points", [])
-            if pts:
-                gfreqs = [p[0] for p in pts]
-                gdbs = [p[1] for p in pts]
-                label_text = gc.get("label", f"Curve {ci}")
-                ax_curve.semilogx(gfreqs, gdbs, color=colors_list[ci % len(colors_list)],
-                                  linewidth=2, label=f"{label_text} ({len(pts)} pts)")
-
-        ax_curve.set_xlim(max(10, guide_freq[0] * 0.8), guide_freq[1] * 1.2)
-        ax_curve.set_ylim(guide_db[1] - 2, guide_db[0] + 2)
-        ax_curve.axhline(0, color="gray", linewidth=0.5, linestyle="--")
-        ax_curve.set_xlabel("Frequency (Hz)")
-        ax_curve.set_ylabel("dB")
-        ax_curve.set_title("Saved guide trace", fontsize=11)
-        ax_curve.legend(loc="lower right", fontsize=9)
-        ax_curve.grid(True, which="both", alpha=0.3)
-        plt.tight_layout()
-        plt.ion()
-        fig.show()
-        fig.canvas.flush_events()
-
-        choice = input("  Resume from saved guide, retrace, or skip? (R/retrace/skip): ").strip().lower()
-        plt.close(fig)
-        plt.ioff()
-        if choice in ("skip", "s"):
+        if choice == GuideReview.SKIP:
             print(f"  Skipped")
             return False
-        elif choice in ("retrace", "t"):
+        elif choice == GuideReview.REDO:
             existing_guide = None  # fall through to tracing
         else:
             # Resume: use saved guide data
             curves = existing_guide["curves"]
             guide_data = existing_guide
-            # Update working_ds from saved guide (may have confirmed axis ranges)
             if "plot_bounds" in existing_guide:
                 plot_bounds = existing_guide["plot_bounds"]
                 working_ds["plot_bounds"] = plot_bounds
@@ -1315,12 +1522,11 @@ def guide_mic(slug, mic_config):
 
     if curves is None:
         # New trace
-        tracer = GuideTracer(img, slug, working_ds)
-        curves = tracer.run()
-
+        curves = _adjust_and_trace(img, slug, working_ds)
         if curves is None:
             print(f"  Skipped")
             return False
+        plot_bounds = working_ds["plot_bounds"]
 
         _prompt_labels(curves)
 
@@ -1333,14 +1539,15 @@ def guide_mic(slug, mic_config):
         mask_paths = _generate_mask(img, working_ds, curves, slug)
 
         if not mask_paths:
-            response = input("  Mask generation failed. Retrace? (Y/n): ").strip().lower()
-            if response in ("n", "no"):
+            print(f"  Mask generation failed. {fmt.bold('[enter]')} retrace   {fmt.dim('skip')} next mic")
+            response = input(f"  > ").strip().lower()
+            if response in ("n", "no", "skip", "s"):
                 return False
             # Retrace but guide is still saved
-            tracer = GuideTracer(img, slug, working_ds)
-            curves = tracer.run()
+            curves = _adjust_and_trace(img, slug, working_ds)
             if curves is None:
                 return False
+            plot_bounds = working_ds["plot_bounds"]
             _prompt_labels(curves)
             _, guide_data = _save_guide(slug, curves, freq_guess, db_guess,
                                          plot_bounds, color_guess)
@@ -1355,14 +1562,15 @@ def guide_mic(slug, mic_config):
                 all_saved = False
 
         if not all_saved:
-            response = input("  Redo masks or retrace? (masks/retrace/skip): ").strip().lower()
+            print(f"  {fmt.bold('[enter]')} redo masks   {fmt.dim('retrace')} redo from scratch   {fmt.dim('skip')} next mic")
+            response = input(f"  > ").strip().lower()
             if response in ("skip", "s"):
                 return False
-            if response in ("retrace", "t"):
-                tracer = GuideTracer(img, slug, working_ds)
-                curves = tracer.run()
+            if response in ("retrace", "t", "redo"):
+                curves = _adjust_and_trace(img, slug, working_ds)
                 if curves is None:
                     return False
+                plot_bounds = working_ds["plot_bounds"]
                 _prompt_labels(curves)
                 _, guide_data = _save_guide(slug, curves, freq_guess, db_guess,
                                              plot_bounds, color_guess)
@@ -1381,8 +1589,19 @@ def guide_mic(slug, mic_config):
         with open(cal_path, "w") as f:
             json.dump(cal, f, indent=2)
 
-        if _preview_curve(slug, img, mask_paths, cal):
-            break  # accepted
+        action, extracted = _preview_curve(slug, img, mask_paths, cal)
+        if action == CurvePreview.ACCEPT:
+            break
+        elif action == CurvePreview.RETRACE:
+            print("  Retracing from scratch...")
+            curves = _adjust_and_trace(img, slug, working_ds)
+            if curves is None:
+                return False
+            plot_bounds = working_ds["plot_bounds"]
+            _prompt_labels(curves)
+            _, guide_data = _save_guide(slug, curves, freq_guess, db_guess,
+                                         plot_bounds, color_guess)
+            continue
         else:
             print("  Redoing masks (guide trace is preserved)...")
             continue
@@ -1422,33 +1641,61 @@ def guide_mic(slug, mic_config):
     _save_guide(slug, curves, [freq_lo, freq_hi], [db_top, db_bottom],
                 plot_bounds, color_guess)
 
-    print(f"\n  Done! Masks + guide saved. Run:")
-    print(f"    python3 tools/curves/manage.py build")
+    # Save digitized curve JSON immediately (no separate build step needed)
+    for i, c in enumerate(extracted):
+        c["index"] = i
+        c["source"] = "mask"
+    output = {
+        "slug": slug,
+        "name": mic_config["name"],
+        "hand_edited": True,
+        "curves": {
+            "single": {
+                "num_curves": len(extracted),
+                "curves": extracted,
+            }
+        },
+    }
+    paths.DATASHEET_CURVES.mkdir(parents=True, exist_ok=True)
+    json_path = paths.DATASHEET_CURVES / f"{slug}.json"
+    with open(json_path, "w") as f:
+        json.dump(output, f, indent=2)
+    print(fmt.ok(f"Wrote {json_path.name}: {len(extracted)} curve(s)"))
+
     return True
 
 
-def main():
-    slugs = sys.argv[1:] if len(sys.argv) > 1 else None
+def main(slugs=None):
+    # None = standalone mode (check sys.argv), [] = all mics, [...] = specific slugs
+    if slugs is None:
+        slugs = sys.argv[1:] if len(sys.argv) > 1 else []
 
     if slugs:
         mics_to_do = {s: MICS[s] for s in slugs if s in MICS}
         missing = [s for s in slugs if s not in MICS]
         if missing:
-            print(f"Unknown slugs: {', '.join(missing)}")
+            print(fmt.warn(f"Unknown slugs: {', '.join(missing)}"))
     else:
         mics_to_do = {s: m for s, m in MICS.items() if "datasheet" in m}
 
-    print(f"Guide tracer: {len(mics_to_do)} mics")
-    print("Close window or press Enter to save, Q to skip\n")
+    print(fmt.bold(f"Guide tracer: {len(mics_to_do)} mics"))
+    print(fmt.dim("Close window or press Enter to save, Q to skip"))
 
     saved = 0
-    for slug, mic in sorted(mics_to_do.items()):
-        if guide_mic(slug, mic):
-            saved += 1
+    try:
+        for slug, mic in sorted(mics_to_do.items()):
+            if guide_mic(slug, mic):
+                saved += 1
+    except KeyboardInterrupt:
+        plt.close("all")
+        print(f"\n{fmt.warn(f'Interrupted — {saved} guides saved so far.')}")
+        return
+    finally:
+        plt.close("all")
 
-    print(f"\nDone. {saved} guides saved to {paths.DATASHEET_GUIDES}/")
+    print(fmt.ok(f"Done. {saved} guides saved to {paths.DATASHEET_GUIDES}/"))
     if saved:
-        print("Run 'python3 tools/curves/manage.py build' to digitize with guides.")
+        print(fmt.dim("  Run 'manage.py build' to compile into plugin data."))
 
 
 if __name__ == "__main__":

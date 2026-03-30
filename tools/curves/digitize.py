@@ -13,6 +13,7 @@ import numpy as np
 import requests
 from PIL import Image
 
+import fmt
 import paths
 from registry import MICS
 
@@ -377,11 +378,11 @@ def filter_continuity(data, max_jump_db=4.0, window=5):
     return [(round(f, 2), round(d, 2)) for f, d in filtered]
 
 
-def resample_log(data, num_points=256, smooth=True):
+def resample_log(data, num_points=512, smooth=True):
     """Resample onto a uniform log-frequency grid, with optional smoothing.
 
     Smoothing removes pixel-level stairstepping from mask digitization
-    without losing real curve features. Uses a gentle moving average.
+    without losing real curve features. Uses a single gentle pass.
     """
     if len(data) < 2:
         return data
@@ -391,12 +392,10 @@ def resample_log(data, num_points=256, smooth=True):
     grid_db = np.interp(grid, freqs, dbs)
 
     if smooth and num_points >= 20:
-        # Gentle smoothing: 5-point moving average, applied twice.
-        # Preserves shape but removes quantization staircase.
-        kernel = np.ones(5) / 5
-        for _ in range(2):
-            padded = np.pad(grid_db, 2, mode='edge')
-            grid_db = np.convolve(padded, kernel, mode='valid')[:num_points]
+        # Single pass, 3-point kernel — just removes pixel staircase
+        kernel = np.ones(3) / 3
+        padded = np.pad(grid_db, 1, mode='edge')
+        grid_db = np.convolve(padded, kernel, mode='valid')[:num_points]
 
     return [(round(f, 2), round(d, 2)) for f, d in zip(grid, grid_db)]
 
@@ -1247,33 +1246,33 @@ def cmd_prepare(args):
         if ds:
             ds_path = paths.datasheet_original(slug)
             if ds_path.exists():
-                print(f"\n--- {name} ({slug}) --- [datasheet: {ds_path.name}]")
+                print(fmt.heading(f"{name} ({slug})") + f"  {fmt.dim(f'[datasheet: {ds_path.name}]')}")
                 summary.append((slug, name, "datasheet", []))
                 continue
             else:
-                print(f"\n--- {name} ({slug}) ---")
-                print(f"  WARNING: datasheet not found: {ds_path}")
+                print(fmt.heading(f"{name} ({slug})"))
+                print(fmt.warn(f"datasheet not found: {ds_path}"))
                 summary.append((slug, name, "datasheet_missing", []))
                 # Fall through to RH if available
 
         # RH source (fallback or primary if no datasheet)
         if not rh_id:
             if not ds:
-                print(f"\n--- {name} ({slug}) ---")
-                print(f"  SKIP: no datasheet config and no rh_id")
+                print(fmt.heading(f"{name} ({slug})"))
+                print(fmt.dim("  SKIP: no datasheet config and no rh_id"))
                 summary.append((slug, name, "no_source", []))
             continue
 
         source_path = paths.rh_original(slug)
         if not source_path.exists() or source_path.stat().st_size == 0:
-            print(f"\n--- {name} ({slug}) ---")
+            print(fmt.heading(f"{name} ({slug})"))
             download_single_graph(rh_id, source_path)
             if source_path.stat().st_size == 0:
-                print(f"  WARNING: download returned 0 bytes, skipping")
+                print(fmt.warn("download returned 0 bytes, skipping"))
                 summary.append((slug, name, "download_failed", []))
                 continue
         else:
-            print(f"\n--- {name} ({slug}) --- [cached]")
+            print(fmt.heading(f"{name} ({slug})") + f"  {fmt.dim('[cached]')}")
 
         # Check if hand-edited masks already exist
         edited_masks = sorted(paths.RH_MASKS.glob(f"{slug}_*.png"))
@@ -1290,27 +1289,25 @@ def cmd_prepare(args):
             summary.append((slug, name, "base_only", []))
 
     # Print summary
-    print("\n" + "=" * 70)
-    print("SUMMARY")
-    print("=" * 70)
+    print(fmt.heading("Summary"))
     ds_count = 0
     rh_count = 0
     missing = []
     for slug, name, status, masks in summary:
         if status == "datasheet":
-            print(f"  {name:<25} {slug:<15} ★ datasheet")
+            print(f"  {name:<25} {slug:<15} {fmt.cyan('★')} datasheet")
             ds_count += 1
         elif status == "edited":
-            print(f"  {name:<25} {slug:<15} ✓ {len(masks)} mask variant(s)")
+            print(f"  {name:<25} {slug:<15} {fmt.green('✓')} {len(masks)} mask variant(s)")
             rh_count += 1
         elif status == "base_only":
             print(f"  {name:<25} {slug:<15}   RH base mask")
             rh_count += 1
         else:
-            print(f"  {name:<25} {slug:<15}   ⚠ {status}")
+            print(f"  {name:<25} {slug:<15} {fmt.yellow('⚠')} {status}")
             missing.append(slug)
 
-    print(f"\n  Datasheets: {ds_count}  |  RH masks: {rh_count}  |  Missing: {len(missing)}")
+    print(f"\n  Datasheets: {fmt.bold(ds_count)}  |  RH masks: {fmt.bold(rh_count)}  |  Missing: {fmt.bold(len(missing))}")
 
 
 def cmd_build(args):
@@ -1329,13 +1326,13 @@ def cmd_build(args):
     slugs = args.slugs if hasattr(args, 'slugs') and args.slugs else sorted(MICS)
     for slug in slugs:
         if slug not in MICS:
-            print(f"\nUnknown slug: {slug}")
+            print(fmt.err(f"Unknown slug: {slug}"))
             continue
         info = MICS[slug]
         name = info["name"]
         ds = info.get("datasheet")
         rh_id = info.get("rh_id")
-        print(f"\n--- {name} ({slug}) ---")
+        print(fmt.heading(f"{name} ({slug})"))
 
         source_img = None  # for comparison plot
         plot_crop = None    # [left, top, right, bottom] for comparison plot
@@ -1393,7 +1390,7 @@ def cmd_build(args):
                 if source_img is None:
                     source_img = paths.rh_original(slug)
             else:
-                print(f"  WARNING: no curves extracted from masks")
+                print(fmt.warn("no curves extracted from masks"))
 
         # Priority 2: Datasheet (unguided auto-extraction)
         if output is None and ds:
@@ -1424,13 +1421,13 @@ def cmd_build(args):
                 source_img = ds_path
                 plot_crop = ds["plot_bounds"]
             else:
-                print(f"  WARNING: datasheet not found: {ds_path}, falling back")
+                print(fmt.warn(f"datasheet not found: {ds_path}, falling back"))
 
         # Priority 3: RH source image
         if output is None:
             source_path = paths.rh_original(slug)
             if not source_path.exists() or source_path.stat().st_size == 0:
-                print(f"  SKIP: no source available")
+                print(fmt.dim("  SKIP: no source available"))
                 continue
 
             results = digitize_single(source_path)
@@ -1467,7 +1464,7 @@ def cmd_build(args):
         n = output.get("curves", {}).get("single", {}).get("num_curves", 0)
         src_label = " (datasheet)" if target_dir == paths.DATASHEET_CURVES else ""
         edited_label = " (hand-edited)" if output.get("hand_edited") else ""
-        print(f"  Wrote {json_path}: {n} curve(s){src_label}{edited_label}")
+        print(fmt.ok(f"Wrote {json_path}: {n} curve(s){src_label}{edited_label}"))
 
         for c in output.get("curves", {}).get("single", {}).get("curves", []):
             pts = c["data"]
@@ -1484,7 +1481,7 @@ def cmd_build(args):
             make_comparison_plot(source_img, output["curves"], plot_path,
                                 [rh_id or slug], plot_crop=plot_crop)
 
-    print(f"\nDone. JSONs in {paths.DATASHEET_CURVES}/ and {paths.RH_CURVES}/")
-    print(f"Plots in {tmp_dir}/")
+    print(fmt.ok(f"Done. JSONs in {paths.DATASHEET_CURVES}/ and {paths.RH_CURVES}/"))
+    print(fmt.dim(f"  Plots in {tmp_dir}/"))
 
 
