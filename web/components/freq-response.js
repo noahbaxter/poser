@@ -26,7 +26,7 @@ const TILT_DB_PER_OCT = 0;
 const TILT_REF_FREQ   = 1000;
 
 // Spectrum smoothing
-const SPECTRUM_SMOOTHING_OCT = 0.1; // fraction of an octave to average (0 = off, 0.15 = 1/6 octave)
+const SPECTRUM_SMOOTHING_OCT = 0.33; // fraction of an octave to average (0 = off, 0.15 = 1/6 octave)
 const SPECTRUM_PEAK_ATTACK   = 1.0;  // per frame — how fast peaks appear (1.0 = instant)
 const SPECTRUM_PEAK_DECAY    = 0.06; // per frame — how fast peaks fall (~0.3s to half)
 
@@ -72,7 +72,7 @@ export class FreqResponse {
         this.smoothedBins = null;
 
         // Y-axis scale (manual toggle)
-        this.scaleOptions = [6, 12, 24, 36];
+        this.scaleOptions = [12, 24, 36];
         this.scaleIndex = 0;
         this.scale = this.scaleOptions[this.scaleIndex];
 
@@ -87,9 +87,6 @@ export class FreqResponse {
         this.viewerGainDb = 0;
         const gainGroup = document.createElement('div');
         gainGroup.className = 'eq-gain-group';
-        const gainLabel = document.createElement('div');
-        gainLabel.className = 'eq-gain-label';
-        gainLabel.textContent = 'GAIN';
         const gainSlot = document.createElement('div');
         gainSlot.className = 'eq-gain-slot';
         this.gainKnob = new Knob(gainSlot, {
@@ -102,9 +99,14 @@ export class FreqResponse {
         });
         this.gainKnob.onChange = (v) => { this.viewerGainDb = v; };
         gainGroup.appendChild(gainSlot);
-        gainGroup.appendChild(gainLabel);
         gainGroup.addEventListener('wheel', (e) => e.stopPropagation(), { passive: false });
         viewerEl.appendChild(gainGroup);
+
+        // Bottom scroll guard — prevents scale-scroll when hovering over freq labels
+        const bottomGuard = document.createElement('div');
+        bottomGuard.className = 'eq-bottom-guard';
+        bottomGuard.addEventListener('wheel', (e) => e.stopPropagation(), { passive: false });
+        viewerEl.appendChild(bottomGuard);
 
         // Scroll to change scale — anywhere on the viewer
         const handleScaleScroll = (e) => {
@@ -342,13 +344,21 @@ export class FreqResponse {
         // Position scale button at top dB line
         this.scaleBtn.style.top = (pad.top - 1) + 'px';
 
+        // --- Theme colors (read from CSS vars) ---
+        const colorFg = rootStyle.getPropertyValue('--color-fg').trim() || '#000';
+        const colorGrid = rootStyle.getPropertyValue('--color-grid').trim() || '#eee';
+        const colorGridZero = rootStyle.getPropertyValue('--color-grid-zero').trim() || '#ccc';
+        const colorGridLabel = rootStyle.getPropertyValue('--color-grid-label').trim() || '#bbb';
+        const spectrumFillAlpha = parseFloat(rootStyle.getPropertyValue('--color-spectrum-fill')) || SPECTRUM_FILL_ALPHA;
+        const spectrumStrokeAlpha = parseFloat(rootStyle.getPropertyValue('--color-spectrum-stroke')) || SPECTRUM_STROKE_ALPHA;
+
         // --- Grid ---
         ctx.font = '9px "SF Mono", "Menlo", monospace';
 
         // Frequency grid
-        ctx.strokeStyle = '#eee';
+        ctx.strokeStyle = colorGrid;
         ctx.lineWidth = 1;
-        ctx.fillStyle = '#bbb';
+        ctx.fillStyle = colorGridLabel;
         ctx.textAlign = 'center';
         for (const f of GRID_FREQS) {
             if (f < MIN_FREQ || f > MAX_FREQ) continue;
@@ -365,15 +375,15 @@ export class FreqResponse {
         ctx.textAlign = 'left';
         for (let db = -scale; db <= scale; db += 6) {
             const y = dbToY(db);
-            ctx.strokeStyle = db === 0 ? '#ccc' : '#eee';
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = db === 0 ? colorGridZero : colorGrid;
+            ctx.lineWidth = db === 0 ? 2 : 1;
             ctx.beginPath();
             ctx.moveTo(pad.left, y);
             ctx.lineTo(pad.left + pw, y);
             ctx.stroke();
             // Skip top label (scale button replaces it), keep bottom
             if (db !== 0 && db !== scale) {
-                ctx.fillStyle = '#bbb';
+                ctx.fillStyle = colorGridLabel;
                 ctx.fillText((db > 0 ? '+' : '') + db, pad.left + 4, y + 3);
             }
         }
@@ -467,31 +477,25 @@ export class FreqResponse {
             if (this.trackedAvgDb > NOISE_FLOOR) {
                 const normOffset = this.trackedAvgDb - this.viewerGainDb;
 
+                // Build spectrum point array
+                const specPts = displayBins.map(bin => ({
+                    x: freqToX(bin.freq),
+                    y: dbToY(bin.db - normOffset),
+                }));
+
                 // Fill
                 ctx.beginPath();
-                let started = false;
-                for (const bin of displayBins) {
-                    const x = freqToX(bin.freq);
-                    const y = dbToY(bin.db - normOffset);
-                    if (!started) { ctx.moveTo(x, y); started = true; }
-                    else ctx.lineTo(x, y);
-                }
-                ctx.lineTo(freqToX(displayBins[displayBins.length - 1].freq), pad.top + ph);
-                ctx.lineTo(freqToX(displayBins[0].freq), pad.top + ph);
+                traceCurveSmooth(ctx, specPts);
+                ctx.lineTo(specPts[specPts.length - 1].x, pad.top + ph);
+                ctx.lineTo(specPts[0].x, pad.top + ph);
                 ctx.closePath();
-                ctx.fillStyle = `rgba(0, 0, 0, ${SPECTRUM_FILL_ALPHA})`;
+                ctx.fillStyle = this._rgba(colorFg, spectrumFillAlpha);
                 ctx.fill();
 
                 // Stroke
                 ctx.beginPath();
-                started = false;
-                for (const bin of displayBins) {
-                    const x = freqToX(bin.freq);
-                    const y = dbToY(bin.db - normOffset);
-                    if (!started) { ctx.moveTo(x, y); started = true; }
-                    else ctx.lineTo(x, y);
-                }
-                ctx.strokeStyle = `rgba(0, 0, 0, ${SPECTRUM_STROKE_ALPHA})`;
+                traceCurveSmooth(ctx, specPts);
+                ctx.strokeStyle = this._rgba(colorFg, spectrumStrokeAlpha);
                 ctx.lineWidth = 1;
                 ctx.stroke();
             }
@@ -523,25 +527,31 @@ export class FreqResponse {
             }
 
             if (pts.length > 1) {
-                // Fill between curve and 0dB
                 ctx.beginPath();
                 traceCurveSmooth(ctx, pts);
-                ctx.lineTo(pts[pts.length - 1].x, zeroY);
-                ctx.lineTo(pts[0].x, zeroY);
-                ctx.closePath();
-                ctx.fillStyle = `rgba(0, 0, 0, ${CURVE_FILL_ALPHA})`;
-                ctx.fill();
-
-                // Stroke
-                ctx.beginPath();
-                traceCurveSmooth(ctx, pts);
-                ctx.strokeStyle = '#000';
+                ctx.strokeStyle = colorFg;
                 ctx.lineWidth = CURVE_STROKE_WIDTH;
                 ctx.stroke();
             }
         }
 
         ctx.restore();
+    }
+
+    // Convert hex color + alpha to rgba string
+    _rgba(hex, alpha) {
+        // Handle both 3-char (#000) and 6-char (#000000) hex
+        let r, g, b;
+        if (hex.length === 4) {
+            r = parseInt(hex[1] + hex[1], 16);
+            g = parseInt(hex[2] + hex[2], 16);
+            b = parseInt(hex[3] + hex[3], 16);
+        } else {
+            r = parseInt(hex.slice(1, 3), 16);
+            g = parseInt(hex.slice(3, 5), 16);
+            b = parseInt(hex.slice(5, 7), 16);
+        }
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 }
 

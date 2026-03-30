@@ -264,11 +264,13 @@ export class Selector {
         const cy = cx;
         const arcRadius = ringRadius + 22;
 
-        const TAG_COLORS = { kick: 'rgba(0,0,0,0.15)' };
+        const fg = getComputedStyle(document.documentElement).getPropertyValue('--color-fg').trim() || '#000';
+        const toRgba = (hex, a) => { const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; };
+        const TAG_COLORS = { kick: toRgba(fg, 0.15) };
         const sliceAngle = 360 / n; // degrees per item
 
         for (const tag of group.tags) {
-            const color = TAG_COLORS[tag.name] || 'rgba(0,0,0,0.04)';
+            const color = TAG_COLORS[tag.name] || toRgba(fg, 0.04);
             // Arc starts halfway before first item and ends halfway after last item
             const startAngle = ((tag.start * sliceAngle) - sliceAngle / 2 - 90) * Math.PI / 180;
             const endAngle = ((tag.end * sliceAngle) + sliceAngle / 2 - 90) * Math.PI / 180;

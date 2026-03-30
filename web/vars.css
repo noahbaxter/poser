@@ -89,21 +89,54 @@
     /* Version */
     --version-font: 9px;
 
-    /* Colors */
+    /* Theme colors (light) */
+    --color-fg: #000;
+    --color-bg: #fff;
+    --color-fg-inv: #fff;
     --color-border: #bbb;
     --color-bg-inactive: #ddd;
     --color-bg-hover: #ccc;
-    --color-text-muted: #bbb;
-    --color-text-dim: #888;
-    --color-text-hover: #555;
-    --color-text-off: #999;
+    --color-text-muted: #999;
+    --color-text-dim: #777;
+    --color-text-hover: #444;
+    --color-text-off: #888;
     --color-toggle-off: #333;
-    --color-toggle-border: #ccc;
-    --color-option-inactive: #ccc;
+    --color-toggle-border: #aaa;
+    --color-option-inactive: #aaa;
     --color-disabled: 0.4;
+    --color-grid: #eee;
+    --color-grid-zero: #ccc;
+    --color-grid-label: #bbb;
+    --color-hover-accent: #888;
+    --color-spectrum-fill: 0.2;
+    --color-spectrum-stroke: 0.4;
 
     /* Shared */
     --radius: 4px;
     --letter-spacing: 2px;
     --knob-hit-expand: 8px;
+}
+
+[data-theme="dark"] {
+    --color-fg: #e8e8e8;
+    --color-bg: #1a1a1a;
+    --color-fg-inv: #1a1a1a;
+    --color-border: #3a3a3a;
+    --color-bg-inactive: #2a2a2a;
+    --color-bg-hover: #404040;
+    --color-text-muted: #777;
+    --color-text-dim: #999;
+    --color-text-hover: #ccc;
+    --color-text-off: #888;
+    --color-toggle-off: #aaa;
+    --color-toggle-border: #666;
+    --color-option-inactive: #666;
+    --color-disabled: 0.35;
+    --color-grid: #242424;
+    --color-grid-zero: #333;
+    --color-grid-label: #444;
+    --color-hover-accent: #666;
+    --color-spectrum-fill: 0.2;
+    --color-spectrum-stroke: 0.4;
+    --color-grid-zero: #444;
 }
